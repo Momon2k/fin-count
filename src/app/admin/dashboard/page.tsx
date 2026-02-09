@@ -99,15 +99,15 @@ const StatisticsOverview: React.FC = () => {
                 const batchesResponse = await fetch('/api/batches?limit=1000');
                 const batchesData = await batchesResponse.json();
 
-                // Fetch all users (staff members)
-                const usersResponse = await fetch('/api/user?userType=staff&limit=1000');
+                // Fetch all users (admin members)
+                const usersResponse = await fetch('/api/user?userType=admin&limit=1000');
                 const usersData = await usersResponse.json();
 
                 // Process sessions data
                 const sessions = sessionsData.success && sessionsData.data?.sessions ? sessionsData.data.sessions : [];
 
                 const activeSessions = sessions.length; // All sessions from the API are considered active
-                const totalStaff = usersData.data?.pagination?.totalUsers || 0;
+                const totalAdmins = usersData.data?.pagination?.totalUsers || 0;
 
                 // Calculate total fingerlings from all batches
                 const totalFingerlings = batchesData.data?.batches?.reduce((sum: number, batch: any) => {
@@ -135,7 +135,7 @@ const StatisticsOverview: React.FC = () => {
 
                     {
                         title: "Admin Members",
-                        value: totalStaff.toString(),
+                        value: totalAdmins.toString(),
                         description: "Total number of admin members",
                         icon: UserCheck,
                         bgColor: "bg-cyan-50",

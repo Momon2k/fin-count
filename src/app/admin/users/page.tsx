@@ -37,7 +37,7 @@ interface UsersResponse {
     };
 }
 
-const UsersTable: React.FC = () => {
+const UsersTable: React.FC<{ refreshKey?: number }> = ({ refreshKey }) => {
     const [users, setUsers] = useState<User[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -117,7 +117,7 @@ const UsersTable: React.FC = () => {
 
     useEffect(() => {
         fetchUsers();
-    }, []);
+    }, [refreshKey]);
 
     const getRoleBadgeColor = (userType: string) => {
         switch (userType.toLowerCase()) {
@@ -719,6 +719,26 @@ const AddUserPage: React.FC = () => {
     });
 
     const { unreadCount } = useNotification();
+    const [isAddUserModalOpen, setIsAddUserModalOpen] = useState(false);
+    const [usersRefreshKey, setUsersRefreshKey] = useState(0);
+
+    const handleAddUserSuccess = () => {
+        setIsAddUserModalOpen(false);
+        setUsersRefreshKey((prev) => prev + 1);
+    };
+
+    useEffect(() => {
+        if (!isAddUserModalOpen) return;
+
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key === "Escape") {
+                setIsAddUserModalOpen(false);
+            }
+        };
+
+        window.addEventListener("keydown", onKeyDown);
+        return () => window.removeEventListener("keydown", onKeyDown);
+    }, [isAddUserModalOpen]);
 
     if (isLoading) {
         return (
@@ -772,21 +792,64 @@ const AddUserPage: React.FC = () => {
                         {/* Add New User Section */}
                         <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-5 overflow-hidden">
                             <div className="p-6 border-b border-gray-100">
-                                <h2 className="text-lg font-semibold text-gray-700">
-                                    Add New User
-                                </h2>
-                                <p className="text-sm text-gray-500 mt-1">
-                                    Select user role and fill in the details to create a new user account
-                                </p>
+                                <div className="flex items-start justify-between gap-4">
+                                    <div>
+                                        <h2 className="text-lg font-semibold text-gray-700">
+                                            Add New User
+                                        </h2>
+                                        <p className="text-sm text-gray-500 mt-1">
+                                            Create a new admin account
+                                        </p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsAddUserModalOpen(true)}
+                                        className="shrink-0 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                                    >
+                                        Add Admin User
+                                    </button>
+                                </div>
                             </div>
-                            <SelectUser />
                         </div>
 
                         {/* Existing Users Table */}
-                        <UsersTable />
+                        <UsersTable refreshKey={usersRefreshKey} />
                     </div>
                 </main>
             </div>
+            {isAddUserModalOpen && (
+                <div
+                    className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+                    onClick={() => setIsAddUserModalOpen(false)}
+                >
+                    <div
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label="Add admin user"
+                        className="bg-white rounded-lg shadow-xl p-6 max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="flex items-center justify-between mb-4">
+                            <div>
+                                <h3 className="text-lg font-medium text-gray-900">
+                                    Add Admin User
+                                </h3>
+                                <p className="text-sm text-gray-500">
+                                    Fill in the details below to create a new admin account
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setIsAddUserModalOpen(false)}
+                                className="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+                            >
+                                Close
+                            </button>
+                        </div>
+                        <SelectUser onSuccess={handleAddUserSuccess} />
+                    </div>
+                </div>
+            )}
         </>
     );
 };

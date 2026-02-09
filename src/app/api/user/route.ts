@@ -6,6 +6,7 @@ import models from "@/server/database/models";
 import { NextRequest, NextResponse } from "next/server";
 import { jsonResponse } from "@/server/helpers/function.helpers";
 import { Op } from "sequelize";
+import { getToken } from "next-auth/jwt";
 
 interface StaffProfile {
   fullName: string;
@@ -30,13 +31,15 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
 
     // Validate required fields
-    if (!body.email || !body.password || !body.userType) {
+    if (!body.email || !body.password) {
       return jsonResponse({
         success: false,
         error: "Missing required fields",
         status: 400,
       });
     }
+
+    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
 
     // Check for existing email
     const isEmailExist = await models.User.findOne({
@@ -59,26 +62,70 @@ export async function POST(request: NextRequest) {
       (adminEmail: string) => adminEmail === body.email
     );
 
+    if (!token?.user) {
+      const adminCount = await models.User.count({
+        where: {
+          userType: Role.admin,
+        },
+      });
+
+      if (!isAdmin || adminCount > 0) {
+        return jsonResponse({
+          success: false,
+          error: "Unauthorized",
+          status: 401,
+        });
+      }
+    } else if ((token as any).user.userType !== Role.admin) {
+      return jsonResponse({
+        success: false,
+        error: "Forbidden",
+        status: 403,
+      });
+    }
+
     // Create user data
     const userData: ExtendedUserCreationAttributes = {
       email: body.email,
       password: await bcrypt.hash(body.password, 10),
-      userType: isAdmin ? Role.admin : (body.userType as Role),
+      userType: Role.admin,
     };
 
     // Add profile data based on user type
-    if (body.userType === "staff") {
+    const effectiveUserType = userData.userType;
+
+    if (
+      effectiveUserType === Role.staff &&
+      typeof body.fullName === "string" &&
+      typeof body.username === "string" &&
+      typeof body.phoneNumber === "string"
+    ) {
       userData.staffProfile = {
         fullName: body.fullName,
         username: body.username,
         phoneNumber: body.phoneNumber,
         profilePhoto: body.profilePhoto,
       };
-    } else if (body.userType === "admin") {
-      userData.adminProfile = {
-        firstName: body.firstName,
-        lastName: body.lastName,
-      };
+    } else if (effectiveUserType === Role.admin) {
+      const firstName =
+        typeof body.firstName === "string" ? body.firstName.trim() : "";
+      const lastName =
+        typeof body.lastName === "string" ? body.lastName.trim() : "";
+
+      const fullName = typeof body.fullName === "string" ? body.fullName : "";
+      const nameParts = fullName.trim().split(/\s+/).filter(Boolean);
+      const firstNameFromFullName = nameParts[0] || "";
+      const lastNameFromFullName = nameParts.slice(1).join(" ");
+
+      const resolvedFirstName = firstName || firstNameFromFullName;
+      const resolvedLastName = lastName || lastNameFromFullName || "Admin";
+
+      if (resolvedFirstName) {
+        userData.adminProfile = {
+          firstName: resolvedFirstName,
+          lastName: resolvedLastName,
+        };
+      }
     }
 
     // Begin transaction and create records
@@ -94,7 +141,7 @@ export async function POST(request: NextRequest) {
       );
 
       // Now create the appropriate profile based on user type
-      if (body.userType === "student" && userData.staffProfile) {
+      if (effectiveUserType === Role.staff && userData.staffProfile) {
         await models.StaffProfile.create(
           {
             userId: user.id,
@@ -102,7 +149,7 @@ export async function POST(request: NextRequest) {
           },
           { transaction }
         );
-      } else if (body.userType === "admin" && userData.adminProfile) {
+      } else if (effectiveUserType === Role.admin && userData.adminProfile) {
         await models.AdminProfile.create(
           {
             userId: user.id,

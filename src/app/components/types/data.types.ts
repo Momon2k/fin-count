@@ -41,6 +41,7 @@ export interface FilePreviewForStaff {
 }
 
 export type FormErrorsState = {
+  general?: string;
   firstName?: string;
   lastName?: string;
   email?: string;

@@ -22,9 +22,6 @@ export const validationSchema = yup.object().shape({
         .string()
         .oneOf([yup.ref('password')], 'Passwords must match')
         .required('Confirm password is required'),
-    agreeToTerms: yup
-        .boolean()
-        .oneOf([true], 'You must agree to the terms and conditions')
 });
 
 // Validation function

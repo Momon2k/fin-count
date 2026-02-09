@@ -12,6 +12,7 @@ import { validateForm } from "@/app/validation/admin.validation";
 
 type AdminRegistrationProps = {
     userType: string;
+    onSuccess?: () => void;
 };
 
 const AdminRegistration: React.FC<AdminRegistrationProps> = (props) => {
@@ -38,18 +39,30 @@ const AdminRegistration: React.FC<AdminRegistrationProps> = (props) => {
             ...formData,
             [name]: type === "checkbox" ? checked : value,
         });
+        if (errors.general) {
+            setErrors((prevErrors) => ({ ...prevErrors, general: undefined }));
+        }
     };
 
     const handleSubmit = async (e: React.MouseEvent<HTMLButtonElement>) => {
         e.preventDefault();
 
-        if (await validateFormAndUpdateErrors()) {
-            setIsSubmitting(true);
+        const isValid = await validateFormAndUpdateErrors();
+        if (!isValid) {
+            setErrors((prevErrors) => ({
+                ...prevErrors,
+                general: "Please fix the highlighted fields and try again.",
+            }));
+            toast.error("Please fix the form errors and try again.", {
+                style: {
+                    background: "#FF5252",
+                    color: "#FFFFFF",
+                },
+            });
+            return;
+        }
 
-            setTimeout(() => {
-                setIsSubmitting(false);
-                setRegistrationSuccess(true);
-            }, 1500);
+        setIsSubmitting(true);
 
             const loadingToastId = toast.loading("Registering your account...");
 
@@ -83,6 +96,11 @@ const AdminRegistration: React.FC<AdminRegistrationProps> = (props) => {
                     });
 
                     setFormData(initialState);
+                    if (props.onSuccess) {
+                        props.onSuccess();
+                        return;
+                    }
+                    setRegistrationSuccess(true);
                 } else {
                     throw new Error(response.data.error || "Registration failed");
                 }
@@ -94,6 +112,37 @@ const AdminRegistration: React.FC<AdminRegistrationProps> = (props) => {
                 if (error.response && error.response.data) {
                     const errorMessage =
                         error.response.data.error || "Registration failed";
+                    const statusCode = error.response.status;
+
+                    if (statusCode === 401) {
+                        setErrors((prevErrors) => ({
+                            ...prevErrors,
+                            general:
+                                "You must be signed in as an admin to create new accounts.",
+                        }));
+                        toast.error("Unauthorized: please sign in as an admin.", {
+                            style: {
+                                background: "#FF5252",
+                                color: "#FFFFFF",
+                            },
+                        });
+                        return;
+                    }
+
+                    if (statusCode === 403) {
+                        setErrors((prevErrors) => ({
+                            ...prevErrors,
+                            general:
+                                "Your account does not have permission to create new admin accounts.",
+                        }));
+                        toast.error("Forbidden: insufficient permissions.", {
+                            style: {
+                                background: "#FF5252",
+                                color: "#FFFFFF",
+                            },
+                        });
+                        return;
+                    }
 
                     if (errorMessage.includes("Email already exists")) {
                         setErrors((prevErrors) => ({
@@ -125,7 +174,6 @@ const AdminRegistration: React.FC<AdminRegistrationProps> = (props) => {
             } finally {
                 setIsSubmitting(false);
             }
-        }
     };
 
     if (registrationSuccess) {
@@ -154,6 +202,11 @@ const AdminRegistration: React.FC<AdminRegistrationProps> = (props) => {
     return (
         <div>
             <div>
+                {errors.general && (
+                    <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                        {errors.general}
+                    </div>
+                )}
                 <div className="grid grid-cols-2 gap-4 mb-4">
                     <div>
                         <label

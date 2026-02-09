@@ -35,8 +35,8 @@ export function withAuth(options?: UseAuthOptions) {
     }, [router, options?.redirectTo])
 
     const isLoading = session.status === 'loading'
-    const isAuthenticated = session.status === 'authenticated'
     const userRole = (session.data?.user)?.userType
+    const isAuthenticated = session.status === 'authenticated' && !!userRole
     const hasValidRole = options?.userType ? userRole === options.userType : true
 
     return {
