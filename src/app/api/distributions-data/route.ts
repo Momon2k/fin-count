@@ -4,6 +4,8 @@ import models from "@/server/database/models";
 import { Op } from "sequelize";
 import { softDeleteDistributions } from "@/server/services/distribution.service";
 
+const ML_API_URL = process.env.ML_API_URL;
+
 // Helper function for JSON responses
 function jsonResponse(data: any, status: number = 200) {
   return NextResponse.json(data, { status });
@@ -251,122 +253,75 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const origin = new URL(request.url).origin;
     const dateTo = new Date(body.dateDistributed);
     const dateFrom = new Date(dateTo);
     dateFrom.setFullYear(dateFrom.getFullYear() - 3);
     const formattedDateFrom = dateFrom.toISOString().split("T")[0];
     const formattedDateTo = dateTo.toISOString().split("T")[0];
-    const predictionResponse = await fetch(`${origin}/api/predict`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        species: body.species,
-        province: body.province,
-        city: body.municipality,
-        barangay: body.barangay,
-        fingerlings: body.fingerlings,
-        dateFrom: formattedDateFrom,
-        dateTo: formattedDateTo,
-      }),
-    });
-
-    if (!predictionResponse.ok) {
-      const raw = await predictionResponse.text();
-      let details: unknown = raw;
-      try {
-        details = JSON.parse(raw);
-      } catch {}
-      return jsonResponse(
-        {
-          success: false,
-          error: "Failed to get ML forecast",
-          details,
-        },
-        502
-      );
-    }
-
-    let prediction: any = null;
-    try {
-      prediction = await predictionResponse.json();
-    } catch {
-      return jsonResponse(
-        {
-          success: false,
-          error: "ML forecast response was not valid JSON",
-        },
-        502
-      );
-    }
-
-    console.log("ML response:", prediction);
-
-    if (!prediction || prediction.success !== true) {
-      console.warn("ML prediction failed:", prediction?.error ?? prediction);
-      return jsonResponse(
-        {
-          success: false,
-          error: "ML forecast request failed",
-          details: prediction,
-        },
-        502
-      );
-    }
-
     let forecastedHarvestKilos = 0;
 
-    if (Array.isArray(prediction?.predictions) && prediction.predictions.length > 0) {
-      console.log("ML predictions:", prediction.predictions.length);
-      const lastPrediction = prediction.predictions[prediction.predictions.length - 1];
-      const predictedHarvest = Number(lastPrediction?.predicted_harvest);
-      if (!Number.isFinite(predictedHarvest)) {
-        return jsonResponse(
-          {
-            success: false,
-            error: "ML forecast last prediction did not include predicted_harvest",
-            details: prediction,
-          },
-          502
-        );
-      }
-      forecastedHarvestKilos = Math.round(predictedHarvest);
-      console.log("Forecast value:", forecastedHarvestKilos);
+    const mlPayload = {
+      species: body.species,
+      province: body.province,
+      city: body.municipality,
+      barangay: body.barangay,
+      fingerlings: body.fingerlings,
+      dateFrom: formattedDateFrom,
+      dateTo: formattedDateTo,
+    };
+
+    if (!ML_API_URL) {
+      console.error("ML_API_URL is not configured");
     } else {
-      const candidates = [
-        prediction?.predicted_harvest,
-        prediction?.data?.predicted_harvest,
-      ];
-      const predictedHarvestRaw = candidates.find((value) => value !== undefined);
-      const predictedHarvest = Number(predictedHarvestRaw);
+      try {
+        console.log("ML API URL:", ML_API_URL);
+        console.log("ML payload:", mlPayload);
 
-      if (!Number.isFinite(predictedHarvest)) {
-        return jsonResponse(
-          {
-            success: false,
-            error: "ML forecast response did not include predictions array",
-            details: prediction,
+        const predictionResponse = await fetch(ML_API_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
           },
-          502
-        );
+          body: JSON.stringify(mlPayload),
+          signal: AbortSignal.timeout(15_000),
+        });
+
+        const raw = await predictionResponse.text();
+        let prediction: any = null;
+        try {
+          prediction = raw ? JSON.parse(raw) : null;
+        } catch (error) {
+          console.error("ML forecast response was not valid JSON:", error);
+          console.error("ML raw response:", raw);
+        }
+
+        if (!predictionResponse.ok) {
+          console.error("ML service returned non-OK:", prediction ?? raw);
+        } else if (prediction?.success && Array.isArray(prediction?.predictions) && prediction.predictions.length > 0) {
+          const lastPrediction = prediction.predictions[prediction.predictions.length - 1];
+          const predictedHarvest = Number(lastPrediction?.predicted_harvest);
+          if (Number.isFinite(predictedHarvest) && predictedHarvest > 0) {
+            forecastedHarvestKilos = Math.round(predictedHarvest);
+          } else {
+            console.error("ML service returned an invalid forecast value:", prediction);
+          }
+        } else {
+          const candidates = [
+            prediction?.predicted_harvest,
+            prediction?.data?.predicted_harvest,
+          ];
+          const predictedHarvestRaw = candidates.find((value) => value !== undefined);
+          const predictedHarvest = Number(predictedHarvestRaw);
+
+          if (prediction?.success && Number.isFinite(predictedHarvest) && predictedHarvest > 0) {
+            forecastedHarvestKilos = Math.round(predictedHarvest);
+          } else {
+            console.error("ML service returned error:", prediction ?? raw);
+          }
+        }
+      } catch (error) {
+        console.error("ML service unreachable:", error);
       }
-
-      forecastedHarvestKilos = Math.round(predictedHarvest);
-      console.log("Forecast value:", forecastedHarvestKilos);
-    }
-
-    if (!forecastedHarvestKilos || forecastedHarvestKilos <= 0) {
-      console.error("Invalid ML forecast:", prediction);
-      return jsonResponse(
-        {
-          success: false,
-          error: "ML service returned an invalid forecast value",
-          details: prediction,
-        },
-        502
-      );
     }
 
     // Create new distribution
