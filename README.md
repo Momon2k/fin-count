@@ -39,4 +39,4 @@ git clone https://github.com/your-username/fin-count.git
 cd fin-count
 npm install
 npm run dev
-
+Crazyyy
