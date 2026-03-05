@@ -938,6 +938,7 @@ const DistributionFormModal: React.FC<{
     });
 
     const [errors, setErrors] = useState<FormErrors>({});
+    const [submitError, setSubmitError] = useState<string>("");
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [selectedBatch, setSelectedBatch] = useState<Batch | null>(null);
     const [availableBatches, setAvailableBatches] = useState<Batch[]>(batches);
@@ -993,6 +994,7 @@ const DistributionFormModal: React.FC<{
 
     // Handle input changes
     const handleInputChange = (field: keyof DistributionForm, value: string | number) => {
+        setSubmitError("");
         setFormData(prev => {
             const newData = { ...prev, [field]: value };
 
@@ -1088,7 +1090,7 @@ const DistributionFormModal: React.FC<{
     };
 
     // Calculate forecast and harvest dates based on species
-    const calculateDates = (distributionDate: string, fingerlingsCount: number) => {
+    const calculateDates = (distributionDate: string) => {
         const date = new Date(distributionDate);
 
         // Determine if species is Tilapia or Bangus
@@ -1105,18 +1107,10 @@ const DistributionFormModal: React.FC<{
         const harvestDate = new Date(date);
         harvestDate.setMonth(date.getMonth() + 6); // 6 months for harvest
 
-        // Calculate forecasted harvest based on species-specific growth parameters
-        // Red Tilapia: 0.3 kg after 4 months, 78% survival rate
-        // Bangus: 0.39 kg after 3 months, 93.5% survival rate
-        const expectedWeightAfterGrowth = isTilapia ? 0.3 : 0.39;
-        const survivalRate = isTilapia ? 0.78 : 0.935;
-        const forecastedHarvestKilos = Math.round(fingerlingsCount * survivalRate * expectedWeightAfterGrowth);
-
         return {
             forecast: forecastDate.toISOString().split('T')[0],
             harvest: harvestDate.toISOString().split('T')[0],
-            forecastedHarvest: forecastedHarvestDate.toISOString().split('T')[0],
-            forecastedHarvestKilos
+            forecastedHarvest: forecastedHarvestDate.toISOString().split('T')[0]
         };
     };
 
@@ -1124,10 +1118,11 @@ const DistributionFormModal: React.FC<{
     const handleSubmit = async () => {
         if (!validateForm()) return;
         if (!currentUserId) {
-            alert('No authenticated user found. Please sign in again.');
+            setSubmitError("No authenticated user found. Please sign in again.");
             return;
         }
 
+        setSubmitError("");
         setIsSubmitting(true);
 
         try {
@@ -1149,9 +1144,6 @@ const DistributionFormModal: React.FC<{
                 return;
             }
 
-            // Calculate forecasted harvest kilos
-            const dates = calculateDates(formData.date, formData.fingerlingsCount);
-
             // Prepare data for API
             const distributionData = {
                 dateDistributed: formData.date,
@@ -1162,16 +1154,9 @@ const DistributionFormModal: React.FC<{
                 province: formData.province,
                 fingerlings: formData.fingerlingsCount,
                 species: dbSpecies,
-                survivalRate: 0.78, // Default survival rate
-                avgWeight: 0.5, // Default average weight
-                harvestKilo: Math.round(formData.fingerlingsCount * 0.5 * 0.78), // Calculate based on fingerlings
                 userId: currentUserId,
-                batchId: formData.batchId,
-                forecastedHarvestKilos: dates.forecastedHarvestKilos // Add forecasted harvest kilos
+                batchId: formData.batchId
             };
-
-            // Log the data being sent for debugging
-            console.log('Sending distribution data to API:', distributionData);
 
             // Call API to save to database
             const response = await fetch('/api/distributions-data', {
@@ -1211,7 +1196,7 @@ const DistributionFormModal: React.FC<{
                 }
 
                 // Transform the saved data back to Distribution format for display
-                const dates = calculateDates(formData.date, formData.fingerlingsCount);
+                const dates = calculateDates(formData.date);
                 const location = `${formData.street}, ${formData.barangay}, ${formData.city}, ${formData.province}`;
 
                 const newDistribution: Distribution = {
@@ -1228,7 +1213,7 @@ const DistributionFormModal: React.FC<{
                     forecast: dates.forecast,
                     harvestDate: dates.harvest,
                     forecastedHarvestDate: dates.forecastedHarvest,
-                    forecastedHarvestKilos: dates.forecastedHarvestKilos,
+                    forecastedHarvestKilos: Number(result.data.forecastedHarvestKilos ?? 0),
                     remarks: ''
                 };
 
@@ -1253,12 +1238,24 @@ const DistributionFormModal: React.FC<{
                 onClose();
             } else {
                 console.error('Failed to save distribution:', result.error);
-                alert(`Failed to save distribution: ${result.error}`);
+                const rawError = typeof result.error === "string" ? result.error : "";
+                const isMlForecastError =
+                    response.status === 502 ||
+                    /forecast/i.test(rawError) ||
+                    /ml/i.test(rawError);
+
+                if (isMlForecastError) {
+                    setSubmitError(
+                        "Harvest forecast could not be generated due to insufficient historical data. Please verify the location or try again later."
+                    );
+                } else {
+                    setSubmitError(rawError || "Unable to save distribution. Please try again.");
+                }
             }
 
         } catch (error) {
-            console.error('Error saving distribution:', error);
-            alert('An error occurred while saving the distribution. Please try again.');
+            console.error("Distribution submission error:", error);
+            setSubmitError("An unexpected error occurred while saving the distribution. Please try again.");
         } finally {
             setIsSubmitting(false);
         }
@@ -1748,6 +1745,19 @@ const DistributionFormModal: React.FC<{
                                 <div className="flex items-center gap-1 mt-1">
                                     <AlertCircle className="h-4 w-4 text-red-500" />
                                     <span className="text-sm text-red-600">{errors.details}</span>
+                                </div>
+                            )}
+                            {submitError && (
+                                <div className="bg-amber-50 border border-amber-300 rounded-lg p-4 mt-4">
+                                    <div className="flex items-start gap-3">
+                                        <svg className="w-5 h-5 text-amber-600 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                        </svg>
+                                        <div>
+                                            <h4 className="text-amber-800 font-semibold mb-1">Unable to Save Distribution</h4>
+                                            <p className="text-amber-700 text-sm">{submitError}</p>
+                                        </div>
+                                    </div>
                                 </div>
                             )}
                         </div>
@@ -2741,19 +2751,6 @@ const DistributionForm: React.FC = () => {
                                     <h1 className="text-2xl font-bold text-gray-900">Fingerling Distributions</h1>
                                 </div>
                                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
-                                    <label className="inline-flex items-center gap-2 bg-gray-100 px-4 py-3 rounded-lg text-sm font-medium text-gray-800">
-                                        <input
-                                            type="checkbox"
-                                            checked={includeDeleted}
-                                            onChange={(e) => {
-                                                setIncludeDeleted(e.target.checked);
-                                                setSelectedIds([]);
-                                                setCurrentPage(1);
-                                            }}
-                                            className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                                        />
-                                        Show deleted
-                                    </label>
                                     <button
                                         onClick={() => setShowNewBeneficiaryPrompt(true)}
                                         className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg transition-colors duration-300 flex items-center gap-2 font-semibold"
@@ -2784,7 +2781,7 @@ const DistributionForm: React.FC = () => {
                                     {!includeDeleted && distributionsDeletedCount > 0 ? (
                                         <>
                                             <h3 className="text-lg font-semibold text-gray-600 mb-2">No Active Distributions</h3>
-                                            <p className="text-gray-500 mb-6">You have {distributionsDeletedCount} deleted distribution(s). Turn on “Show deleted” to view them.</p>
+                                            <p className="text-gray-500 mb-6">You have {distributionsDeletedCount} deleted distribution(s).</p>
                                         </>
                                     ) : (
                                         <>

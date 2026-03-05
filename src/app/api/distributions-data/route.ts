@@ -168,6 +168,7 @@ export async function POST(request: NextRequest) {
     const requiredFields = [
       "dateDistributed",
       "beneficiaryName",
+      "barangay",
       "municipality",
       "province",
       "fingerlings",
@@ -209,6 +210,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (typeof body.dateDistributed !== "string" || !body.dateDistributed.trim()) {
+      return jsonResponse(
+        {
+          success: false,
+          error: "dateDistributed must be a non-empty string",
+        },
+        400
+      );
+    }
+
     // Calculate forecasted harvest date based on species
     // Bangus: 3 months, Tilapia: 4 months
     const distributionDate = new Date(body.dateDistributed);
@@ -240,6 +251,124 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const origin = new URL(request.url).origin;
+    const dateTo = new Date(body.dateDistributed);
+    const dateFrom = new Date(dateTo);
+    dateFrom.setFullYear(dateFrom.getFullYear() - 3);
+    const formattedDateFrom = dateFrom.toISOString().split("T")[0];
+    const formattedDateTo = dateTo.toISOString().split("T")[0];
+    const predictionResponse = await fetch(`${origin}/api/predict`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        species: body.species,
+        province: body.province,
+        city: body.municipality,
+        barangay: body.barangay,
+        fingerlings: body.fingerlings,
+        dateFrom: formattedDateFrom,
+        dateTo: formattedDateTo,
+      }),
+    });
+
+    if (!predictionResponse.ok) {
+      const raw = await predictionResponse.text();
+      let details: unknown = raw;
+      try {
+        details = JSON.parse(raw);
+      } catch {}
+      return jsonResponse(
+        {
+          success: false,
+          error: "Failed to get ML forecast",
+          details,
+        },
+        502
+      );
+    }
+
+    let prediction: any = null;
+    try {
+      prediction = await predictionResponse.json();
+    } catch {
+      return jsonResponse(
+        {
+          success: false,
+          error: "ML forecast response was not valid JSON",
+        },
+        502
+      );
+    }
+
+    console.log("ML response:", prediction);
+
+    if (!prediction || prediction.success !== true) {
+      console.warn("ML prediction failed:", prediction?.error ?? prediction);
+      return jsonResponse(
+        {
+          success: false,
+          error: "ML forecast request failed",
+          details: prediction,
+        },
+        502
+      );
+    }
+
+    let forecastedHarvestKilos = 0;
+
+    if (Array.isArray(prediction?.predictions) && prediction.predictions.length > 0) {
+      console.log("ML predictions:", prediction.predictions.length);
+      const lastPrediction = prediction.predictions[prediction.predictions.length - 1];
+      const predictedHarvest = Number(lastPrediction?.predicted_harvest);
+      if (!Number.isFinite(predictedHarvest)) {
+        return jsonResponse(
+          {
+            success: false,
+            error: "ML forecast last prediction did not include predicted_harvest",
+            details: prediction,
+          },
+          502
+        );
+      }
+      forecastedHarvestKilos = Math.round(predictedHarvest);
+      console.log("Forecast value:", forecastedHarvestKilos);
+    } else {
+      const candidates = [
+        prediction?.predicted_harvest,
+        prediction?.data?.predicted_harvest,
+      ];
+      const predictedHarvestRaw = candidates.find((value) => value !== undefined);
+      const predictedHarvest = Number(predictedHarvestRaw);
+
+      if (!Number.isFinite(predictedHarvest)) {
+        return jsonResponse(
+          {
+            success: false,
+            error: "ML forecast response did not include predictions array",
+            details: prediction,
+          },
+          502
+        );
+      }
+
+      forecastedHarvestKilos = Math.round(predictedHarvest);
+      console.log("Forecast value:", forecastedHarvestKilos);
+    }
+
+    if (!forecastedHarvestKilos || forecastedHarvestKilos <= 0) {
+      console.error("Invalid ML forecast:", prediction);
+      return jsonResponse(
+        {
+          success: false,
+          error: "ML service returned an invalid forecast value",
+          details: prediction,
+        },
+        502
+      );
+    }
+
     // Create new distribution
     const newDistribution = await Distribution.create({
       dateDistributed: new Date(body.dateDistributed),
@@ -254,7 +383,7 @@ export async function POST(request: NextRequest) {
       userId: body.userId,
       batchId: body.batchId || null,
       forecastedHarvestDate: forecastedHarvestDate,
-      forecastedHarvestKilos: body.forecastedHarvestKilos || null,
+      forecastedHarvestKilos,
       actualHarvestKilos: body.actualHarvestKilos || null,
       actualHarvestDate: body.actualHarvestDate
         ? new Date(body.actualHarvestDate)

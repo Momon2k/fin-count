@@ -84,6 +84,14 @@ const FullScreenLoader = () => (
     </div>
 );
 
+const getTodayDateString = () => {
+    const d = new Date();
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+};
+
 const DataVisualization: React.FC = () => {
     const { isLoading, isAuthenticated, logout } = withAuth({
         userType: "admin",
@@ -96,7 +104,7 @@ const DataVisualization: React.FC = () => {
 
     const [fingerlingsState, setFingerlingsState] = useState<FingerlingsState>({
         dateFrom: '2023-01-01',
-        dateTo: '2025-12-31',
+        dateTo: '',
         selectedProvince: 'all',
         selectedCity: 'all',
         selectedBarangay: 'all',
@@ -114,7 +122,7 @@ const DataVisualization: React.FC = () => {
 
     const [harvestState, setHarvestState] = useState<HarvestState>({
         dateFrom: '2023-01-01',
-        dateTo: '2025-12-31',
+        dateTo: '',
         selectedProvince: 'all',
         selectedCity: 'all',
         selectedBarangay: 'all',
@@ -278,12 +286,17 @@ const DataVisualization: React.FC = () => {
     };
 
     // Handle harvest comparison - Fetch real data from API
-    const handleHarvestCompare = async () => {
-        setHarvestState(prev => ({ ...prev, isLoading: true }));
+    type HarvestFilters = Pick<HarvestState, 'dateFrom' | 'dateTo' | 'selectedProvince' | 'selectedCity' | 'selectedBarangay' | 'selectedFacilityType'>;
+
+    const handleHarvestCompare = async (overrides: Partial<HarvestFilters> = {}) => {
+        const currentState: HarvestState = {
+            ...harvestState,
+            ...overrides
+        };
+
+        setHarvestState(prev => ({ ...prev, ...overrides, isLoading: true }));
 
         try {
-            // Get current state to pass to fetchHarvestData
-            const currentState = harvestState;
             const newData = await fetchHarvestData(currentState);
             setHarvestState(prev => ({
                 ...prev,
@@ -460,27 +473,38 @@ const DataVisualization: React.FC = () => {
     };
 
     // Handle fingerlings comparison - Fetch real data from API with all filters
-    const handleFingerlingsCompare = async () => {
-        setFingerlingsState(prev => ({ ...prev, isLoading: true }));
+    type FingerlingsFilters = Pick<FingerlingsState, 'dateFrom' | 'dateTo' | 'selectedProvince' | 'selectedCity' | 'selectedBarangay' | 'selectedFacilityType'>;
+
+    const handleFingerlingsCompare = async (overrides: Partial<FingerlingsFilters> = {}) => {
+        const filters: FingerlingsFilters = {
+            dateFrom: overrides.dateFrom ?? fingerlingsState.dateFrom,
+            dateTo: overrides.dateTo ?? fingerlingsState.dateTo,
+            selectedProvince: overrides.selectedProvince ?? fingerlingsState.selectedProvince,
+            selectedCity: overrides.selectedCity ?? fingerlingsState.selectedCity,
+            selectedBarangay: overrides.selectedBarangay ?? fingerlingsState.selectedBarangay,
+            selectedFacilityType: overrides.selectedFacilityType ?? fingerlingsState.selectedFacilityType
+        };
+
+        setFingerlingsState(prev => ({ ...prev, ...overrides, isLoading: true }));
 
         try {
             // Build query parameters for detailed data
             const detailParams = new URLSearchParams();
 
-            if (fingerlingsState.dateFrom) {
-                detailParams.append('startDate', fingerlingsState.dateFrom);
+            if (filters.dateFrom) {
+                detailParams.append('startDate', filters.dateFrom);
             }
-            if (fingerlingsState.dateTo) {
-                detailParams.append('endDate', fingerlingsState.dateTo);
+            if (filters.dateTo) {
+                detailParams.append('endDate', filters.dateTo);
             }
-            if (fingerlingsState.selectedProvince !== 'all') {
-                detailParams.append('province', fingerlingsState.selectedProvince);
+            if (filters.selectedProvince !== 'all') {
+                detailParams.append('province', filters.selectedProvince);
             }
-            if (fingerlingsState.selectedCity !== 'all' && fingerlingsState.selectedCity !== 'All Cities') {
-                detailParams.append('municipality', fingerlingsState.selectedCity);
+            if (filters.selectedCity !== 'all' && filters.selectedCity !== 'All Cities') {
+                detailParams.append('municipality', filters.selectedCity);
             }
-            if (fingerlingsState.selectedBarangay !== 'all' && fingerlingsState.selectedBarangay !== 'All Barangays') {
-                detailParams.append('barangay', fingerlingsState.selectedBarangay);
+            if (filters.selectedBarangay !== 'all' && filters.selectedBarangay !== 'All Barangays') {
+                detailParams.append('barangay', filters.selectedBarangay);
             }
             detailParams.append('limit', '1000'); // Get more records for aggregation
 
@@ -497,13 +521,13 @@ const DataVisualization: React.FC = () => {
                 // Determine grouping level based on filters
                 let groupingKey: 'province' | 'municipality' | 'barangay' | 'beneficiary';
 
-                if (fingerlingsState.selectedBarangay !== 'all' && fingerlingsState.selectedBarangay !== 'All Barangays') {
+                if (filters.selectedBarangay !== 'all' && filters.selectedBarangay !== 'All Barangays') {
                     // If specific barangay is selected, group by beneficiary
                     groupingKey = 'beneficiary';
-                } else if (fingerlingsState.selectedCity !== 'all' && fingerlingsState.selectedCity !== 'All Cities') {
+                } else if (filters.selectedCity !== 'all' && filters.selectedCity !== 'All Cities') {
                     // If city is selected, group by barangay within that city
                     groupingKey = 'barangay';
-                } else if (fingerlingsState.selectedProvince !== 'all') {
+                } else if (filters.selectedProvince !== 'all') {
                     // If province is selected, group by municipality
                     groupingKey = 'municipality';
                 } else {
@@ -569,8 +593,8 @@ const DataVisualization: React.FC = () => {
                         location: value.displayKey,
                         tilapia: value.tilapia,
                         bangus: value.bangus,
-                        date: fingerlingsState.dateTo,
-                        facilityType: fingerlingsState.selectedFacilityType === 'all_facilities' ? 'All Facilities' : fingerlingsState.selectedFacilityType.replace(/_/g, ' '),
+                        date: filters.dateTo,
+                        facilityType: filters.selectedFacilityType === 'all_facilities' ? 'All Facilities' : filters.selectedFacilityType.replace(/_/g, ' '),
                         province: value.province,
                         city: value.municipality,
                         barangay: value.barangay
@@ -897,9 +921,9 @@ const DataVisualization: React.FC = () => {
 
     // Initialize data
     useEffect(() => {
-        handleFingerlingsCompare();
+        handleFingerlingsCompare({ dateTo: getTodayDateString() });
         handleLeaderboardRefresh();
-        handleHarvestCompare();
+        handleHarvestCompare({ dateTo: getTodayDateString() });
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Filter leaderboard data

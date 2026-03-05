@@ -109,7 +109,7 @@ export const locationData: LocationData = {
             "Tandag City": ["Awasian", "Bagong Lungsod", "Bioto", "Bongtod Poblacion", "Buenavista", "Dagocdoc", "Mabua", "Mabuhay", "Maitum", "Maticdum", "Pandanon", "Pangi", "Quezon", "Rosario", "Salvacion", "San Agustin Norte", "San Agustin Sur", "San Antonio", "San Isidro", "San Jose", "Telaje"],
             "Barobo": ["Amaga", "Bahi", "Cabacungan", "Cambagang", "Causwagan", "Dapdap", "Dughan", "Gamut", "Javier", "Kinayan", "Mamis", "Poblacion", "Rizal", "San Jose", "San Roque", "San Vicente", "Sua", "Sudlon", "Tambis", "Unidad", "Wakat"],
             "Bayabas": ["Amag", "Balete", "Cabugo", "Cagbaoto", "La Paz", "Magobawok", "Panaosawon"],
-            "Cagwait": ["Aras-asan", "Bacolod", "Bitaugan East", "Bitaugan West", "La Purisima", "Lactudan", "Mat-e", "Poblacion", "Tawagan", "Tubo-tubo", "Unidad"],
+            "Cagwait": ["Aras-asan", "Bacolod", "Bitaugan East", "Bitaugan West", "La Purisima", "Lactudan", "Mat-e", "Poblacion", "Tawagan", "Tubo-tubo", "Unidad", "Baguhin"],
             "Cantilan": ["Bugsukan", "Buntalid", "Cabangahan", "Cabas-an", "Calagdaan", "Consuelo", "General Island", "Lininti-an", "Lobo", "Magasang", "Magosilom", "Pag-antayan", "Palasao", "Parang", "San Pedro", "Tapi", "Tigabong"],
             "Carrascal": ["Adlay", "Babuyan", "Bacolod", "Baybay", "Bon-ot", "Caglayag", "Dahican", "Doyos", "Embarcadero", "Gamuton", "Panikian", "Pantukan", "Saca", "Tag-Anito"],
             "Cortes": ["Balibadon", "Burgos", "Capandan", "Mabahin", "Madrelino", "Manlico", "Matho", "Poblacion", "Tag-Anito", "Tigao", "Tuboran", "Uba"],

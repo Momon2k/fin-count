@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Users, TrendingUp, Calendar, MapPin, Fish, BarChart3 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Legend, Tooltip, Area, AreaChart, LineChart, Line } from "recharts";
 import AsideNavigation from "../components/aside.navigation";
@@ -89,6 +89,22 @@ interface FormData {
     facilityType: string;
 }
 
+const formatDateInputValue = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
+const getTodayInputValue = (): string => formatDateInputValue(new Date());
+
+const getMinStartDateFor12MonthWindow = (endDateInput: string): string => {
+    if (!endDateInput) return '';
+    const end = new Date(endDateInput);
+    const minStart = new Date(end.getFullYear(), end.getMonth() - 11, 1);
+    return formatDateInputValue(minStart);
+};
+
 const FullScreenLoader: React.FC = () => (
     <div className="flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
@@ -104,14 +120,17 @@ const HarvestForecast: React.FC = () => {
     const { unreadCount } = useNotification();
 
     // Form state
-    const [formData, setFormData] = useState<FormData>({
-        dateFrom: "2025-11-01",
-        dateTo: "2026-02-01",
+    const [formData, setFormData] = useState<FormData>(() => {
+        const today = getTodayInputValue();
+        return {
+            dateFrom: getMinStartDateFor12MonthWindow(today),
+            dateTo: today,
         species: "Red Tilapia",
         province: "all",
         city: "all",
         barangay: "all",
         facilityType: "Fish Cage"
+        };
     });
 
     // Forecast data state
@@ -121,6 +140,14 @@ const HarvestForecast: React.FC = () => {
     const [apiError, setApiError] = useState<string | null>(null);
     const [predictionResponse, setPredictionResponse] = useState<PredictionResponse | null>(null);
     const [validationError, setValidationError] = useState<string | null>(null);
+    const requestAbortRef = useRef<AbortController | null>(null);
+    const lastRequestedKeyRef = useRef<string | null>(null);
+
+    useEffect(() => {
+        return () => {
+            requestAbortRef.current?.abort();
+        };
+    }, []);
 
     // Options for dropdowns
     const speciesOptions = [
@@ -142,6 +169,7 @@ const HarvestForecast: React.FC = () => {
     const handleInputChange = (field: keyof FormData, value: string) => {
         setFormData(prev => {
             const newData = { ...prev, [field]: value };
+            const today = getTodayInputValue();
 
             // Reset dependent fields when parent changes
             if (field === 'province') {
@@ -149,6 +177,32 @@ const HarvestForecast: React.FC = () => {
                 newData.barangay = 'all';
             } else if (field === 'city') {
                 newData.barangay = 'all';
+            }
+
+            if (field === 'dateTo') {
+                if (newData.dateTo && newData.dateTo > today) {
+                    newData.dateTo = today;
+                }
+                const minStart = getMinStartDateFor12MonthWindow(newData.dateTo);
+                if (minStart && newData.dateFrom && newData.dateFrom < minStart) {
+                    newData.dateFrom = minStart;
+                }
+                if (newData.dateFrom && newData.dateTo && newData.dateFrom > newData.dateTo) {
+                    newData.dateFrom = newData.dateTo;
+                }
+            }
+
+            if (field === 'dateFrom') {
+                const minStart = getMinStartDateFor12MonthWindow(newData.dateTo);
+                if (minStart && newData.dateFrom && newData.dateFrom < minStart) {
+                    newData.dateFrom = minStart;
+                }
+                if (newData.dateFrom && newData.dateTo && newData.dateFrom > newData.dateTo) {
+                    newData.dateTo = newData.dateFrom;
+                }
+                if (newData.dateTo && newData.dateTo > today) {
+                    newData.dateTo = today;
+                }
             }
 
             // Note: Removed automatic date adjustment when species changes
@@ -362,13 +416,6 @@ const HarvestForecast: React.FC = () => {
         const monthsDiff = (endDate.getFullYear() - startDate.getFullYear()) * 12 +
             (endDate.getMonth() - startDate.getMonth()) + 1;
 
-        console.log('Validation Check:', {
-            species: formData.species,
-            dateFrom: formData.dateFrom,
-            dateTo: formData.dateTo,
-            monthsDiff: monthsDiff
-        });
-
         // Check maximum 12 months limit for all species
         if (monthsDiff > 12) {
             return {
@@ -380,33 +427,76 @@ const HarvestForecast: React.FC = () => {
         return { isValid: true, errorMessage: '' };
     };
 
-    // Handle forecast generation
-    const handleGenerateForecast = async () => {
-        // Validate date range before proceeding
+    const getForecastRequestKey = () =>
+        JSON.stringify({
+            dateFrom: formData.dateFrom,
+            dateTo: formData.dateTo,
+            species: formData.species,
+            province: formData.province,
+            city: formData.city,
+            barangay: formData.barangay,
+        });
+
+    const generateForecastForCurrentFilters = async (options?: { preserveExistingResults?: boolean }) => {
+        const preserveExistingResults = options?.preserveExistingResults ?? false;
         const validation = validateDateRange();
         if (!validation.isValid) {
             setApiError(validation.errorMessage);
+            if (!preserveExistingResults) {
+                setShowResults(false);
+                setPredictionResponse(null);
+                setForecastData([]);
+            }
             return;
         }
+
+        const requestKey = getForecastRequestKey();
+        lastRequestedKeyRef.current = requestKey;
+
+        const controller = new AbortController();
+        if (requestAbortRef.current) {
+            requestAbortRef.current.abort();
+        }
+        requestAbortRef.current = controller;
 
         setIsGenerating(true);
         setApiError(null);
 
         try {
-            // Call the calculated forecast API (uses real database data)
-            const response = await fetch('/api/forecast/calculated', {
+            const normalizeSpecies = (species: string): string => {
+                if (species === "Red Tilapia") return "Tilapia";
+                return species;
+            };
+
+            const payload = {
+                species: normalizeSpecies(formData.species),
+                dateFrom: formData.dateFrom,
+                dateTo: formData.dateTo,
+                province:
+                    !formData.province || formData.province === "all"
+                        ? "All Provinces"
+                        : formData.province,
+                city:
+                    !formData.city || formData.city === "all" || formData.city === "All Cities"
+                        ? "All Cities"
+                        : formData.city,
+                barangay:
+                    !formData.barangay ||
+                        formData.barangay === "all" ||
+                        formData.barangay === "All Barangays"
+                        ? "All Barangays"
+                        : formData.barangay,
+            };
+
+            console.log("Outgoing /api/predict payload:", payload);
+
+            const response = await fetch('/api/predict', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({
-                    species: formData.species,
-                    dateFrom: formData.dateFrom,
-                    dateTo: formData.dateTo,
-                    province: formData.province,
-                    city: formData.city,
-                    barangay: formData.barangay,
-                }),
+                signal: controller.signal,
+                body: JSON.stringify(payload),
             });
 
             if (!response.ok) {
@@ -423,16 +513,13 @@ const HarvestForecast: React.FC = () => {
             const apiData: PredictionResponse = result;
             setPredictionResponse(apiData);
 
-            // Transform API data to chart format
             const transformedData: ForecastData[] = apiData.predictions.map((pred) => {
                 const dateObj = new Date(pred.date);
                 const monthIndex = dateObj.getMonth();
                 const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-                // Use actual harvest data from database if available
                 const historical = Math.round((pred as any).actual_harvest || 0);
 
-                // Calculate confidence percentage from confidence bounds
                 const confidenceRange = pred.confidence_upper - pred.confidence_lower;
                 const confidencePercent = Math.round(100 - (confidenceRange / pred.predicted_harvest * 100));
 
@@ -441,7 +528,7 @@ const HarvestForecast: React.FC = () => {
                     date: pred.date,
                     predicted: Math.round(pred.predicted_harvest),
                     historical,
-                    confidence: Math.max(75, Math.min(95, confidencePercent)), // Clamp between 75-95%
+                    confidence: Math.max(75, Math.min(95, confidencePercent)),
                     species: formData.species,
                     location: `${formData.city}, ${formData.province}`
                 };
@@ -449,14 +536,47 @@ const HarvestForecast: React.FC = () => {
 
             setForecastData(transformedData);
             setShowResults(true);
-
         } catch (error) {
-            console.error('Error generating forecast:', error);
+            if (controller.signal.aborted) return;
             setApiError(error instanceof Error ? error.message : 'An unexpected error occurred');
-            setShowResults(false);
+            if (!preserveExistingResults) {
+                setShowResults(false);
+                setPredictionResponse(null);
+                setForecastData([]);
+            }
         } finally {
-            setIsGenerating(false);
+            if (requestAbortRef.current === controller) {
+                setIsGenerating(false);
+            }
         }
+    };
+
+    useEffect(() => {
+        if (!showResults) return;
+        if (validationError) return;
+
+        const requestKey = getForecastRequestKey();
+        if (lastRequestedKeyRef.current === requestKey) return;
+
+        const timeoutId = window.setTimeout(() => {
+            generateForecastForCurrentFilters({ preserveExistingResults: true });
+        }, 600);
+
+        return () => window.clearTimeout(timeoutId);
+    }, [
+        showResults,
+        validationError,
+        formData.dateFrom,
+        formData.dateTo,
+        formData.species,
+        formData.province,
+        formData.city,
+        formData.barangay,
+    ]);
+
+    // Handle forecast generation
+    const handleGenerateForecast = async () => {
+        await generateForecastForCurrentFilters({ preserveExistingResults: showResults });
     };
 
     // Get available cities based on selected province
@@ -696,6 +816,8 @@ const HarvestForecast: React.FC = () => {
                                         <input
                                             type="date"
                                             value={formData.dateFrom}
+                                            min={getMinStartDateFor12MonthWindow(formData.dateTo)}
+                                            max={formData.dateTo || getTodayInputValue()}
                                             onChange={(e) => handleInputChange('dateFrom', e.target.value)}
                                             className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                                         />
@@ -709,6 +831,8 @@ const HarvestForecast: React.FC = () => {
                                         <input
                                             type="date"
                                             value={formData.dateTo}
+                                            min={formData.dateFrom}
+                                            max={getTodayInputValue()}
                                             onChange={(e) => handleInputChange('dateTo', e.target.value)}
                                             className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                                         />
@@ -941,11 +1065,14 @@ const HarvestForecast: React.FC = () => {
                                                 <LineChart data={forecastData}>
                                                     <CartesianGrid strokeDasharray="3 3" />
                                                     <XAxis dataKey="month" />
-                                                    <YAxis />
-                                                    <Tooltip 
-                                                        formatter={(value) => [`${value?.toLocaleString()} kg`, '']}
-                                                        labelFormatter={(label) => `Month: ${label}`}
+                                                    <YAxis
+                                                        domain={[
+                                                            (dataMin: number) => dataMin - 50,
+                                                            (dataMax: number) => dataMax + 50
+                                                        ]}
+                                                        tickFormatter={(value) => value.toFixed(0)}
                                                     />
+                                                    <Tooltip formatter={(value: number) => `${value.toFixed(2)} kg`} />
                                                     <Legend />
                                                     <Line 
                                                         type="monotone" 
