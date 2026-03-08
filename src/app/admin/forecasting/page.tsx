@@ -9,49 +9,6 @@ import { useNotification } from "@/app/context/notification";
 import { withAuth } from "@/server/with.auth";
 import { getCitiesForProvinceWithBarangays, locationData } from "@/app/components/data/location.data";
 
-// Types
-interface PredictionItem {
-    date: string;
-    predicted_harvest: number;
-    input_features: Record<string, any>;
-    confidence_lower: number;
-    confidence_upper: number;
-}
-
-interface ModelInfo {
-    model_name: string;
-    species: string;
-    version: string;
-    last_trained: string;
-    features_used: string[];
-    parameters?: {
-        survival_rate: number;
-        avg_body_weight: number;
-    };
-}
-
-interface PredictionMetadata {
-    province: string;
-    city: string;
-    barangay?: string;
-    date_from: string;
-    date_to: string;
-    prediction_count: number;
-    total_distributions?: number;
-    total_fingerlings?: number;
-    total_predicted_harvest?: number;
-    request_id: string;
-    timestamp: string;
-    calculation_method?: string;
-}
-
-interface PredictionResponse {
-    success: boolean;
-    predictions: PredictionItem[];
-    model_info: ModelInfo;
-    metadata: PredictionMetadata;
-}
-
 interface ForecastData {
     month: string;
     date: string;
@@ -62,21 +19,11 @@ interface ForecastData {
     location: string;
 }
 
-interface TrendData {
-    month: string;
-    date: string;
-    value: number;
-    species: string;
-    location: string;
-}
-
-interface BatchData {
-    batchId: string;
-    name: string;
-    city?: string;
-    barangay?: string;
-    fingerlingsCount: number;
-    harvestForecasted: number;
+interface DistributionRow {
+    dateDistributed: string;
+    forecastedHarvestKilos?: number | string | null;
+    actualHarvestKilos?: number | string | null;
+    fingerlings?: number | null;
 }
 
 interface FormData {
@@ -138,7 +85,7 @@ const HarvestForecast: React.FC = () => {
     const [isGenerating, setIsGenerating] = useState(false);
     const [showResults, setShowResults] = useState(false);
     const [apiError, setApiError] = useState<string | null>(null);
-    const [predictionResponse, setPredictionResponse] = useState<PredictionResponse | null>(null);
+    const [forecastStats, setForecastStats] = useState<{ totalDistributions: number; totalFingerlings: number } | null>(null);
     const [validationError, setValidationError] = useState<string | null>(null);
     const requestAbortRef = useRef<AbortController | null>(null);
     const lastRequestedKeyRef = useRef<string | null>(null);
@@ -212,191 +159,21 @@ const HarvestForecast: React.FC = () => {
         });
     };
 
-    // Generate date range between two dates
-    const getDateRange = (startDate: string, endDate: string): string[] => {
+    const getMonthRange = (startDate: string, endDate: string): string[] => {
         const start = new Date(startDate);
         const end = new Date(endDate);
-        const dates: string[] = [];
+        const first = new Date(start.getFullYear(), start.getMonth(), 1);
+        const last = new Date(end.getFullYear(), end.getMonth(), 1);
+        const keys: string[] = [];
 
-        const current = new Date(start);
-        while (current <= end) {
-            dates.push(current.toISOString().split('T')[0]);
+        const current = new Date(first);
+        while (current <= last) {
+            const key = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}`;
+            keys.push(key);
             current.setMonth(current.getMonth() + 1);
         }
 
-        return dates;
-    };
-
-
-    /**
-     * Fetches and aggregates distribution data by geographic level
-     * 
-     * This function is the core of the geographic filtering system. It:
-     * 1. Queries the distributions API based on selected filters (province, city, barangay)
-     * 2. Aggregates the forecasted harvest data by month
-     * 3. Returns trend data for display in the charts
-     * 
-     * HOW FILTERING WORKS:
-     * - Province Level: Shows total forecast for ALL cities in the selected province
-     * - City Level: Shows total forecast for ALL barangays in the selected city
-     * - Barangay Level: Shows forecast for the SPECIFIC selected barangay
-     * 
-     * The filters cascade down:
-     * - If you select "Davao del Norte" and "Tagum City", it shows data for Tagum City only
-     * - If you select "Davao del Norte", "Tagum City", and "Apokon", it shows data for Apokon only
-     * 
-     * @param level - The geographic level to fetch data for ('province' | 'city' | 'barangay')
-     * @returns Promise<TrendData[]> - Array of monthly aggregated trend data
-     */
-    const fetchTrendDataForLevel = async (level: 'province' | 'city' | 'barangay'): Promise<TrendData[]> => {
-        try {
-            // Step 1: Build base query parameters
-            // These parameters are always included regardless of the level
-            const params = new URLSearchParams({
-                species: formData.species === "Red Tilapia" ? "Tilapia" : formData.species,
-                startDate: formData.dateFrom,
-                endDate: formData.dateTo,
-                limit: "1000" // Get all records for aggregation
-            });
-
-            // Step 2: Add location filters based on the selected level
-            // The filtering logic cascades down from province → city → barangay
-            
-            /**
-             * PROVINCE LEVEL FILTERING:
-             * - If user selects "Davao del Norte", it fetches ALL distributions in that province
-             * - This includes all cities (Tagum, Panabo, etc.) and all barangays within them
-             * - Example: "Davao del Norte" → Shows combined data from Tagum + Panabo + all other cities
-             */
-            if (level === 'province' && formData.province !== 'all') {
-                params.append('province', formData.province);
-            } 
-            
-            /**
-             * CITY LEVEL FILTERING:
-             * - If user selects "Davao del Norte" + "Tagum City", it fetches distributions in Tagum City only
-             * - This includes ALL barangays within Tagum City (Apokon, Bincungan, etc.)
-             * - Example: "Tagum City" → Shows combined data from Apokon + Bincungan + all other barangays in Tagum
-             */
-            else if (level === 'city') {
-                if (formData.province !== 'all') {
-                    params.append('province', formData.province);
-                }
-                if (formData.city !== 'all' && formData.city !== 'All Cities') {
-                    params.append('municipality', formData.city);
-                }
-            } 
-            
-            /**
-             * BARANGAY LEVEL FILTERING:
-             * - If user selects "Davao del Norte" + "Tagum City" + "Apokon", it fetches distributions in Apokon only
-             * - This shows data for ONLY that specific barangay
-             * - Example: "Apokon" → Shows data only from Apokon barangay in Tagum City
-             */
-            else if (level === 'barangay') {
-                if (formData.province !== 'all') {
-                    params.append('province', formData.province);
-                }
-                if (formData.city !== 'all' && formData.city !== 'All Cities') {
-                    params.append('municipality', formData.city);
-                }
-                // Add barangay filter if a specific barangay is selected
-                if (formData.barangay && formData.barangay !== 'all' && formData.barangay !== 'All Barangays') {
-                    params.append('barangay', formData.barangay);
-                }
-            }
-
-            // Step 3: Fetch distribution data from the API
-            console.log(`Fetching ${level} trend data with params:`, params.toString());
-            const response = await fetch(`/api/distributions-data?${params.toString()}`);
-
-            if (!response.ok) {
-                throw new Error('Failed to fetch distribution data');
-            }
-
-            const result = await response.json();
-
-            if (!result.success || !result.data.distributions) {
-                throw new Error('Invalid response from distributions API');
-            }
-
-            const distributions = result.data.distributions;
-
-            /**
-             * Step 4: AGGREGATE DATA BY MONTH
-             * 
-             * This is where the magic happens! The function takes all the distributions
-             * (based on your filters) and groups them by month, then sums up the forecasted harvest.
-             * 
-             * Example:
-             * If you selected "Davao del Norte" → "Tagum City", and there are:
-             * - 3 distributions in Apokon barangay in November with forecasts: 50kg, 75kg, 100kg
-             * - 2 distributions in Bincungan barangay in November with forecasts: 80kg, 120kg
-             * 
-             * The result for November would be: 50 + 75 + 100 + 80 + 120 = 425kg total
-             * 
-             * This happens for each month in your selected date range.
-             */
-            const monthlyData = new Map<string, { total: number, count: number }>();
-
-            distributions.forEach((dist: any) => {
-                const date = new Date(dist.dateDistributed);
-                const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-
-                // Get the forecasted harvest value (was calculated when distribution was created)
-                const harvestValue = dist.forecastedHarvestKilos || 0;
-
-                if (monthlyData.has(monthKey)) {
-                    // Add to existing month's total
-                    const existing = monthlyData.get(monthKey)!;
-                    existing.total += harvestValue;
-                    existing.count += 1;
-                } else {
-                    // Create new month entry
-                    monthlyData.set(monthKey, { total: harvestValue, count: 1 });
-                }
-            });
-
-            // Generate date range and fill in data
-            const dates = getDateRange(formData.dateFrom, formData.dateTo);
-            const data: TrendData[] = dates.map(date => {
-                const dateObj = new Date(date);
-                const monthKey = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}`;
-                const monthData = monthlyData.get(monthKey);
-
-                // Location string based on level
-                const locationString = level === 'province' ? formData.province :
-                    level === 'city' ? `${formData.city}, ${formData.province}` :
-                        `${formData.barangay}, ${formData.city}, ${formData.province}`;
-
-                return {
-                    month: dateObj.toLocaleDateString('en-US', { month: 'short' }),
-                    date,
-                    value: monthData ? Math.round(monthData.total) : 0,
-                    species: formData.species,
-                    location: locationString
-                };
-            });
-
-            return data;
-        } catch (error) {
-            console.error(`Error fetching trend data for ${level}:`, error);
-            // Return empty data on error
-            return getDateRange(formData.dateFrom, formData.dateTo).map(date => {
-                const dateObj = new Date(date);
-                const locationString = level === 'province' ? formData.province :
-                    level === 'city' ? `${formData.city}, ${formData.province}` :
-                        `${formData.barangay}, ${formData.city}, ${formData.province}`;
-
-                return {
-                    month: dateObj.toLocaleDateString('en-US', { month: 'short' }),
-                    date,
-                    value: 0,
-                    species: formData.species,
-                    location: locationString
-                };
-            });
-        }
+        return keys;
     };
 
     // Validate date range - maximum 1 year (12 months) for all species
@@ -444,8 +221,8 @@ const HarvestForecast: React.FC = () => {
             setApiError(validation.errorMessage);
             if (!preserveExistingResults) {
                 setShowResults(false);
-                setPredictionResponse(null);
                 setForecastData([]);
+                setForecastStats(null);
             }
             return;
         }
@@ -463,86 +240,97 @@ const HarvestForecast: React.FC = () => {
         setApiError(null);
 
         try {
-            const normalizeSpecies = (species: string): string => {
-                if (species === "Red Tilapia") return "Tilapia";
-                return species;
-            };
+            const normalizeSpecies = (species: string): string =>
+                species === "Red Tilapia" ? "Tilapia" : species;
 
-            const payload = {
+            const params = new URLSearchParams({
                 species: normalizeSpecies(formData.species),
-                dateFrom: formData.dateFrom,
-                dateTo: formData.dateTo,
-                province:
-                    !formData.province || formData.province === "all"
-                        ? "All Provinces"
-                        : formData.province,
-                city:
-                    !formData.city || formData.city === "all" || formData.city === "All Cities"
-                        ? "All Cities"
-                        : formData.city,
-                barangay:
-                    !formData.barangay ||
-                        formData.barangay === "all" ||
-                        formData.barangay === "All Barangays"
-                        ? "All Barangays"
-                        : formData.barangay,
-            };
+                startDate: formData.dateFrom,
+                endDate: formData.dateTo,
+                limit: "1000",
+            });
 
-            console.log("Outgoing /api/predict payload:", payload);
+            if (formData.province !== "all") {
+                params.append("province", formData.province);
+            }
+            if (formData.city !== "all" && formData.city !== "All Cities") {
+                params.append("municipality", formData.city);
+            }
+            if (formData.barangay && formData.barangay !== "all" && formData.barangay !== "All Barangays") {
+                params.append("barangay", formData.barangay);
+            }
 
-            const response = await fetch('/api/predict', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+            const response = await fetch(`/api/distributions-data?${params.toString()}`, {
                 signal: controller.signal,
-                body: JSON.stringify(payload),
+                cache: "no-store",
             });
 
             if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error || 'Failed to fetch predictions');
+                throw new Error("Failed to load distributions");
             }
 
             const result = await response.json();
+            const distributions: DistributionRow[] = result?.data?.distributions ?? [];
 
-            if (!result.success || !result.predictions) {
-                throw new Error('Invalid response from prediction API');
+            if (!result?.success || !Array.isArray(distributions)) {
+                throw new Error("Invalid response from distributions API");
             }
 
-            const apiData: PredictionResponse = result;
-            setPredictionResponse(apiData);
+            const location =
+                formData.barangay && formData.barangay !== "all" && formData.barangay !== "All Barangays"
+                    ? `${formData.barangay}, ${formData.city}, ${formData.province}`
+                    : formData.city !== "all" && formData.city !== "All Cities"
+                        ? `${formData.city}, ${formData.province}`
+                        : formData.province !== "all"
+                            ? formData.province
+                            : "All Locations";
 
-            const transformedData: ForecastData[] = apiData.predictions.map((pred) => {
-                const dateObj = new Date(pred.date);
-                const monthIndex = dateObj.getMonth();
-                const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            const monthly = new Map<string, { predicted: number; historical: number }>();
+            let totalFingerlings = 0;
 
-                const historical = Math.round((pred as any).actual_harvest || 0);
+            for (const dist of distributions) {
+                const dateObj = new Date(dist.dateDistributed);
+                const monthKey = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, "0")}`;
 
-                const confidenceRange = pred.confidence_upper - pred.confidence_lower;
-                const confidencePercent = Math.round(100 - (confidenceRange / pred.predicted_harvest * 100));
+                const predicted = Number(dist.forecastedHarvestKilos ?? 0);
+                const historical = Number(dist.actualHarvestKilos ?? 0);
+                const fingerlings = Number(dist.fingerlings ?? 0);
 
+                if (Number.isFinite(fingerlings) && fingerlings > 0) {
+                    totalFingerlings += fingerlings;
+                }
+
+                const prev = monthly.get(monthKey) ?? { predicted: 0, historical: 0 };
+                monthly.set(monthKey, {
+                    predicted: prev.predicted + (Number.isFinite(predicted) ? predicted : 0),
+                    historical: prev.historical + (Number.isFinite(historical) ? historical : 0),
+                });
+            }
+
+            const monthKeys = getMonthRange(formData.dateFrom, formData.dateTo);
+            const transformedData: ForecastData[] = monthKeys.map((monthKey) => {
+                const values = monthly.get(monthKey);
                 return {
-                    month: months[monthIndex],
-                    date: pred.date,
-                    predicted: Math.round(pred.predicted_harvest),
-                    historical,
-                    confidence: Math.max(75, Math.min(95, confidencePercent)),
+                    month: monthKey,
+                    date: `${monthKey}-01`,
+                    predicted: Math.round(values?.predicted ?? 0),
+                    historical: Math.round(values?.historical ?? 0),
+                    confidence: 0,
                     species: formData.species,
-                    location: `${formData.city}, ${formData.province}`
+                    location,
                 };
             });
 
             setForecastData(transformedData);
+            setForecastStats({ totalDistributions: distributions.length, totalFingerlings });
             setShowResults(true);
         } catch (error) {
             if (controller.signal.aborted) return;
             setApiError(error instanceof Error ? error.message : 'An unexpected error occurred');
             if (!preserveExistingResults) {
                 setShowResults(false);
-                setPredictionResponse(null);
                 setForecastData([]);
+                setForecastStats(null);
             }
         } finally {
             if (requestAbortRef.current === controller) {
@@ -983,9 +771,9 @@ const HarvestForecast: React.FC = () => {
                             RESULTS SECTION
                             ============================================
                             This section displays all forecast results after successful generation.
-                            Shows only when showResults is true and predictionResponse is available.
+                            Shows only when showResults is true and forecast data is available.
                         */}
-                        {showResults && predictionResponse && (
+                        {showResults && forecastData.length > 0 && (
                             <>
                                 {/* Summary Statistics */}
                                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-5">
@@ -999,7 +787,7 @@ const HarvestForecast: React.FC = () => {
                                         </div>
                                         <div className="bg-purple-50 rounded-lg p-4">
                                             <div className="text-2xl font-bold text-purple-600">
-                                                {predictionResponse.metadata.total_fingerlings?.toLocaleString() || 0}
+                                                {forecastStats?.totalFingerlings?.toLocaleString() || 0}
                                             </div>
                                             <div className="text-sm text-purple-800">Total Fingerlings</div>
                                         </div>

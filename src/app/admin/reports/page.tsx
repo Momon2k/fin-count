@@ -189,7 +189,7 @@ const ReportFiltersComponent: React.FC<{
         const resetFilters = {
             reportType: "Fingerling Count",
             species: "All Species",
-            startDate: "2025-04-30",
+            startDate: "2023-01-01",
             endDate: toLocalISODate(new Date()),
             province: "All Provinces",
             city: "All Cities",
@@ -1146,7 +1146,7 @@ const Reports: React.FC = () => {
     const [currentFilters, setCurrentFilters] = useState<ReportFilters>(() => ({
         reportType: "Fingerling Count",
         species: "All Species",
-        startDate: "2025-04-30",
+        startDate: "2023-01-01",
         endDate: toLocalISODate(new Date()),
         province: "All Provinces",
         city: "All Cities",

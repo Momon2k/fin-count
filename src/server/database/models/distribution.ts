@@ -33,7 +33,7 @@ class Distribution extends Model<
   declare batchId: string | null;
   declare forecastedHarvestDate: Date | null;
   declare actualHarvestDate: Date | null;
-  declare forecastedHarvestKilos: number | null;
+  declare forecastedHarvestKilos: number;
   declare actualHarvestKilos: number | null;
   declare remarks:
     | "Harvested"
@@ -113,8 +113,9 @@ Distribution.init(
       comment: "Actual harvest date",
     },
     forecastedHarvestKilos: {
-      allowNull: true,
-      type: DataTypes.DECIMAL(10, 2),
+      allowNull: false,
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
       comment: "Forecasted harvest in kilograms",
     },
     actualHarvestKilos: {

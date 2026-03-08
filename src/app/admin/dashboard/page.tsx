@@ -96,8 +96,8 @@ const StatisticsOverview: React.FC = () => {
                 const sessionsResponse = await fetch('https://fincount-api-production.up.railway.app/api/sessions');
                 const sessionsData = await sessionsResponse.json();
 
-                const batchesResponse = await fetch('/api/batches?limit=1000');
-                const batchesData = await batchesResponse.json();
+                const distributionsStatsResponse = await fetch('/api/distributions-data/stats');
+                const distributionsStatsData = await distributionsStatsResponse.json();
 
                 // Fetch all users (admin members)
                 const usersResponse = await fetch('/api/user?userType=admin&limit=1000');
@@ -109,17 +109,16 @@ const StatisticsOverview: React.FC = () => {
                 const activeSessions = sessions.length; // All sessions from the API are considered active
                 const totalAdmins = usersData.data?.pagination?.totalUsers || 0;
 
-                // Calculate total fingerlings from all batches
-                const totalFingerlings = batchesData.data?.batches?.reduce((sum: number, batch: any) => {
-                    return sum + (batch.totalCount || 0);
-                }, 0) || 0;
+                const totalFingerlings = (distributionsStatsData.success && distributionsStatsData.data?.overview?.totalFingerlings)
+                    ? Number(distributionsStatsData.data.overview.totalFingerlings)
+                    : 0;
 
                 // Update stats
                 setStats([
                     {
                         title: "Total Fingerlings",
                         value: totalFingerlings.toLocaleString(),
-                        description: "Total fingerlings counted across all sessions",
+                        description: "Total fingerlings from distributions",
                         icon: Package,
                         bgColor: "bg-cyan-50",
                         iconColor: "text-cyan-600"

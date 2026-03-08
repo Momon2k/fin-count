@@ -31,8 +31,12 @@ export async function GET(request: NextRequest) {
 
     // Apply date range filter
     if (startDate && endDate) {
-      const start = new Date(startDate).getTime();
-      const end = new Date(endDate).getTime();
+      const startDateObj = new Date(startDate);
+      const endDateObj = new Date(endDate);
+      startDateObj.setUTCHours(0, 0, 0, 0);
+      endDateObj.setUTCHours(23, 59, 59, 999);
+      const start = startDateObj.getTime();
+      const end = endDateObj.getTime();
       console.log(`Date filter: ${startDate} to ${endDate}`);
 
       sessions = sessions.filter((session: any) => {
@@ -48,10 +52,17 @@ export async function GET(request: NextRequest) {
 
     // Apply species filter if specified
     if (species && species !== "All Species") {
+      const canonicalizeSpecies = (value: unknown) => {
+        const s = String(value ?? "").toLowerCase().trim();
+        if (!s) return "";
+        if (s.includes("tilapia")) return "tilapia";
+        if (s.includes("bangus")) return "bangus";
+        return s;
+      };
+      const desiredSpecies = canonicalizeSpecies(species);
       sessions = sessions.filter((session: any) => {
-        const sessionSpecies = (session.species || "").toLowerCase();
-        const speciesLower = species.toLowerCase();
-        return sessionSpecies.includes(speciesLower);
+        const sessionSpecies = canonicalizeSpecies(session.species);
+        return sessionSpecies !== "" && sessionSpecies === desiredSpecies;
       });
     }
 
@@ -62,7 +73,8 @@ export async function GET(request: NextRequest) {
       if (session.counts && typeof session.counts === "object") {
         totalCount = Object.values(session.counts).reduce(
           (sum: number, val: any) => {
-            return sum + (typeof val === "number" ? val : 0);
+            const n = typeof val === "number" ? val : Number(val);
+            return sum + (Number.isFinite(n) ? n : 0);
           },
           0
         );

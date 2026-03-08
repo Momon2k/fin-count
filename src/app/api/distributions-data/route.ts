@@ -4,7 +4,13 @@ import models from "@/server/database/models";
 import { Op } from "sequelize";
 import { softDeleteDistributions } from "@/server/services/distribution.service";
 
-const ML_API_URL = process.env.ML_API_URL;
+const DEFAULT_ML_API_URL = "https://fast-api-prediction-production.up.railway.app";
+
+const ML_API_URL =
+  process.env.ML_API_URL ??
+  process.env.FASTAPI_PREDICT_URL ??
+  process.env.PREDICTION_API_URL ??
+  DEFAULT_ML_API_URL;
 
 // Helper function for JSON responses
 function jsonResponse(data: any, status: number = 200) {
@@ -165,13 +171,13 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
+    const municipality = body.municipality ?? body.city;
 
     // Validate required fields
     const requiredFields = [
       "dateDistributed",
       "beneficiaryName",
       "barangay",
-      "municipality",
       "province",
       "fingerlings",
       "species",
@@ -188,6 +194,16 @@ export async function POST(request: NextRequest) {
           400
         );
       }
+    }
+
+    if (typeof municipality !== "string" || !municipality.trim()) {
+      return jsonResponse(
+        {
+          success: false,
+          error: "Missing required field: municipality",
+        },
+        400
+      );
     }
 
     // Validate species
@@ -253,75 +269,71 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const dateTo = new Date(body.dateDistributed);
-    const dateFrom = new Date(dateTo);
-    dateFrom.setFullYear(dateFrom.getFullYear() - 3);
-    const formattedDateFrom = dateFrom.toISOString().split("T")[0];
-    const formattedDateTo = dateTo.toISOString().split("T")[0];
     let forecastedHarvestKilos = 0;
+    let mlError: string | null = null;
 
-    const mlPayload = {
-      species: body.species,
-      province: body.province,
-      city: body.municipality,
-      barangay: body.barangay,
-      fingerlings: body.fingerlings,
-      dateFrom: formattedDateFrom,
-      dateTo: formattedDateTo,
-    };
-
-    if (!ML_API_URL) {
-      console.error("ML_API_URL is not configured");
+    if (!ML_API_URL || !ML_API_URL.trim()) {
+      console.error("ML prediction endpoint is not configured");
+      mlError = "ML prediction endpoint is not configured";
     } else {
       try {
-        console.log("ML API URL:", ML_API_URL);
-        console.log("ML payload:", mlPayload);
-
-        const predictionResponse = await fetch(ML_API_URL, {
+        const mlBaseUrl = ML_API_URL.replace(/\/+$/, "");
+        const predictionResponse = await fetch(
+          `${mlBaseUrl}/api/v1/predict-distribution`,
+          {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify(mlPayload),
+          body: JSON.stringify({
+            species: body.species,
+            province: body.province,
+            municipality: municipality,
+            barangay: body.barangay,
+            fingerlings: body.fingerlings,
+            dateDistributed: body.dateDistributed,
+          }),
           signal: AbortSignal.timeout(15_000),
-        });
-
-        const raw = await predictionResponse.text();
-        let prediction: any = null;
-        try {
-          prediction = raw ? JSON.parse(raw) : null;
-        } catch (error) {
-          console.error("ML forecast response was not valid JSON:", error);
-          console.error("ML raw response:", raw);
-        }
+          }
+        );
 
         if (!predictionResponse.ok) {
-          console.error("ML service returned non-OK:", prediction ?? raw);
-        } else if (prediction?.success && Array.isArray(prediction?.predictions) && prediction.predictions.length > 0) {
-          const lastPrediction = prediction.predictions[prediction.predictions.length - 1];
-          const predictedHarvest = Number(lastPrediction?.predicted_harvest);
-          if (Number.isFinite(predictedHarvest) && predictedHarvest > 0) {
-            forecastedHarvestKilos = Math.round(predictedHarvest);
-          } else {
-            console.error("ML service returned an invalid forecast value:", prediction);
-          }
+          const errText = await predictionResponse.text();
+          mlError = `ML prediction failed: ${predictionResponse.status} ${errText}`;
         } else {
-          const candidates = [
-            prediction?.predicted_harvest,
-            prediction?.data?.predicted_harvest,
-          ];
-          const predictedHarvestRaw = candidates.find((value) => value !== undefined);
-          const predictedHarvest = Number(predictedHarvestRaw);
+          let prediction: any = null;
+          try {
+            prediction = await predictionResponse.json();
+          } catch (error) {
+            console.error("ML forecast response was not valid JSON:", error);
+            mlError = "ML forecast response was not valid JSON";
+          }
 
-          if (prediction?.success && Number.isFinite(predictedHarvest) && predictedHarvest > 0) {
-            forecastedHarvestKilos = Math.round(predictedHarvest);
+          const rawForecast =
+            prediction?.forecastedHarvestKilos ??
+            prediction?.data?.forecastedHarvestKilos ??
+            0;
+          const value = Number(rawForecast);
+          if (Number.isFinite(value) && value > 0) {
+            forecastedHarvestKilos = Math.round(value);
           } else {
-            console.error("ML service returned error:", prediction ?? raw);
+            mlError = "ML service returned an invalid forecast value";
           }
         }
       } catch (error) {
         console.error("ML service unreachable:", error);
+        mlError = "ML service unreachable";
       }
+    }
+
+    if (!forecastedHarvestKilos || forecastedHarvestKilos <= 0) {
+      return jsonResponse(
+        {
+          success: false,
+          error: mlError ?? "Unable to extract ML forecast",
+        },
+        502
+      );
     }
 
     // Create new distribution
@@ -331,7 +343,7 @@ export async function POST(request: NextRequest) {
       beneficiaryId:
         typeof body.beneficiaryId === "number" ? body.beneficiaryId : null,
       barangay: body.barangay || null,
-      municipality: body.municipality,
+      municipality: municipality,
       province: body.province,
       fingerlings: body.fingerlings,
       species: body.species,
