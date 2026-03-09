@@ -40,3 +40,4 @@ cd fin-count
 npm install
 npm run dev
 Crazyyy
+Hahays
