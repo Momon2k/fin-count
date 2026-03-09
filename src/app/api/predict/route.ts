@@ -1,14 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const DEFAULT_PREDICTION_API_URL =
-  "https://fast-api-prediction-production.up.railway.app/api/v1/predict";
+  "https://fast-api-prediction-production.up.railway.app/api/v1/predict-distribution";
 
-const PREDICTION_API_URL =
+const PREDICTION_API_URL_RAW =
   process.env.FASTAPI_PREDICT_URL ??
   process.env.PREDICTION_API_URL ??
   DEFAULT_PREDICTION_API_URL;
 
 const UPSTREAM_TIMEOUT_MS = 15_000;
+
+function resolvePredictDistributionUrl(rawUrl: string) {
+  const trimmed = rawUrl.trim().replace(/\/+$/, "");
+  if (!trimmed) return "";
+  if (trimmed.includes("/api/v1/predict-distribution")) return trimmed;
+  if (/\/api\/v1\/predict$/.test(trimmed)) {
+    return trimmed.replace(/\/api\/v1\/predict$/, "/api/v1/predict-distribution");
+  }
+  return `${trimmed}/api/v1/predict-distribution`;
+}
 
 function buildUpstreamHeaders(request: NextRequest) {
   const headers = new Headers();
@@ -80,6 +90,14 @@ function normalizeSpecies(value: unknown) {
 
 export async function POST(request: NextRequest) {
   try {
+    const upstreamUrl = resolvePredictDistributionUrl(PREDICTION_API_URL_RAW);
+    if (!upstreamUrl) {
+      return NextResponse.json(
+        { error: "ML prediction endpoint is not configured" },
+        { status: 500 }
+      );
+    }
+
     const rawBody = await request.text();
     if (!rawBody) {
       return NextResponse.json(
@@ -107,11 +125,11 @@ export async function POST(request: NextRequest) {
 
     const requiredKeys = [
       "species",
-      "dateFrom",
-      "dateTo",
       "province",
-      "city",
+      "municipality",
       "barangay",
+      "fingerlings",
+      "dateDistributed",
     ] as const;
     for (const key of requiredKeys) {
       if (!(key in parsedBody)) {
@@ -145,13 +163,13 @@ export async function POST(request: NextRequest) {
       console.info(
         JSON.stringify({
           msg: "proxy_predict_request",
-          upstream: PREDICTION_API_URL,
+          upstream: upstreamUrl,
           requestId,
           species: normalizedSpecies.value,
         })
       );
 
-      upstreamResponse = await fetch(PREDICTION_API_URL, {
+      upstreamResponse = await fetch(upstreamUrl, {
         method: "POST",
         headers: buildUpstreamHeaders(request),
         body: upstreamBody,

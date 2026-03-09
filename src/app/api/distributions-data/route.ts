@@ -12,6 +12,16 @@ const ML_API_URL =
   process.env.PREDICTION_API_URL ??
   DEFAULT_ML_API_URL;
 
+function resolvePredictDistributionUrl(rawUrl: string) {
+  const trimmed = rawUrl.trim().replace(/\/+$/, "");
+  if (!trimmed) return "";
+  if (trimmed.includes("/api/v1/predict-distribution")) return trimmed;
+  if (/\/api\/v1\/predict$/.test(trimmed)) {
+    return trimmed.replace(/\/api\/v1\/predict$/, "/api/v1/predict-distribution");
+  }
+  return `${trimmed}/api/v1/predict-distribution`;
+}
+
 // Helper function for JSON responses
 function jsonResponse(data: any, status: number = 200) {
   return NextResponse.json(data, { status });
@@ -277,9 +287,9 @@ export async function POST(request: NextRequest) {
       mlError = "ML prediction endpoint is not configured";
     } else {
       try {
-        const mlBaseUrl = ML_API_URL.replace(/\/+$/, "");
+        const predictionUrl = resolvePredictDistributionUrl(ML_API_URL);
         const predictionResponse = await fetch(
-          `${mlBaseUrl}/api/v1/predict-distribution`,
+          predictionUrl,
           {
           method: "POST",
           headers: {
