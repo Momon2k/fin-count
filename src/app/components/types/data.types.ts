@@ -72,6 +72,9 @@ export interface Distribution {
   species: string;
   batchId: string;
   fingerlingsCount: number;
+  province?: string;
+  municipality?: string;
+  barangay?: string;
   location: string;
   facilityType: string;
   date: string;

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { Users, User, Calendar, MapPin, Building2, FileText, Save, AlertCircle, CheckCircle, X, Fish, Eye, ChevronDown, ChevronUp, Plus, Edit3, Trash2, RotateCcw } from "lucide-react";
 import AsideNavigation from "../components/aside.navigation";
 import { LogoutModal } from "@/app/components/logout.modal";
@@ -8,7 +8,7 @@ import { LogoutProvider } from "@/app/context/logout";
 import { useNotification } from "@/app/context/notification";
 import { withAuth } from "@/server/with.auth";
 import { Batch, Distribution } from "@/app/components/types/data.types";
-import { getCitiesForProvinceWithBarangays, locationData } from "@/app/components/data/location.data";
+import { getBarangaysForCity, getCitiesForProvinceWithBarangays, locationData } from "@/app/components/data/location.data";
 
 const FullScreenLoader = () => (
     <div className="flex items-center justify-center">
@@ -39,6 +39,21 @@ interface DistributionForm {
 interface FormErrors {
     [key: string]: string;
 }
+
+type DistributionTableFilters = {
+    search: string;
+    species: string;
+    dateFrom: string;
+    dateTo: string;
+    province: string;
+    city: string;
+    barangay: string;
+};
+
+const toLocalISODate = (date: Date) => {
+    const tzOffset = date.getTimezoneOffset() * 60000;
+    return new Date(date.getTime() - tzOffset).toISOString().split('T')[0];
+};
 
 // Autocomplete Input Component
 const AutocompleteInput: React.FC<{
@@ -2315,6 +2330,18 @@ const DistributionForm: React.FC = () => {
     const [distributionsActiveCount, setDistributionsActiveCount] = useState(0);
     const [distributionsDeletedCount, setDistributionsDeletedCount] = useState(0);
 
+    const getDefaultTableFilters = (): DistributionTableFilters => ({
+        search: "",
+        species: "All",
+        dateFrom: "2023-01-01",
+        dateTo: toLocalISODate(new Date()),
+        province: "All",
+        city: "All",
+        barangay: "All"
+    });
+    const [filters, setFilters] = useState<DistributionTableFilters>(() => getDefaultTableFilters());
+    const [debouncedSearch, setDebouncedSearch] = useState(filters.search);
+
     // Pagination state
     const [currentPage, setCurrentPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
@@ -2331,7 +2358,20 @@ const DistributionForm: React.FC = () => {
     // Fetch distributions from API (database seeded data) with pagination
     const fetchDistributions = async (page: number = 1, limit: number = 10) => {
         try {
-            const response = await fetch(`/api/distributions-data?page=${page}&limit=${limit}&includeDeleted=${includeDeleted ? 'true' : 'false'}`, { cache: 'no-store' });
+            const params = new URLSearchParams();
+            params.set('page', String(page));
+            params.set('limit', String(limit));
+            params.set('includeDeleted', includeDeleted ? 'true' : 'false');
+
+            if (debouncedSearch.trim()) params.set('search', debouncedSearch.trim());
+            if (filters.species !== 'All') params.set('species', filters.species);
+            if (filters.province !== 'All') params.set('province', filters.province);
+            if (filters.city !== 'All') params.set('municipality', filters.city);
+            if (filters.barangay !== 'All') params.set('barangay', filters.barangay);
+            if (filters.dateFrom) params.set('startDate', filters.dateFrom);
+            if (filters.dateTo) params.set('endDate', filters.dateTo);
+
+            const response = await fetch(`/api/distributions-data?${params.toString()}`, { cache: 'no-store' });
             const data = await response.json();
 
             if (data.success) {
@@ -2347,6 +2387,9 @@ const DistributionForm: React.FC = () => {
                     species: dist.species,
                     batchId: dist.batchId || '-',
                     fingerlingsCount: dist.fingerlings,
+                    province: dist.province,
+                    municipality: dist.municipality,
+                    barangay: dist.barangay,
                     location: `${dist.barangay ? dist.barangay + ', ' : ''}${dist.municipality}, ${dist.province}`,
                     facilityType: 'Pond' as const,
                     date: new Date(dist.dateDistributed).toISOString().split('T')[0],
@@ -2454,18 +2497,36 @@ const DistributionForm: React.FC = () => {
         }
     };
 
+    useEffect(() => {
+        const timer = setTimeout(() => setDebouncedSearch(filters.search), 300);
+        return () => clearTimeout(timer);
+    }, [filters.search]);
+
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [debouncedSearch]);
+
     // Load data on component mount and when page/limit changes
     useEffect(() => {
         const loadData = async () => {
             setIsLoadingData(true);
-            await Promise.all([fetchDistributions(currentPage, itemsPerPage), fetchBatches()]);
+            await fetchDistributions(currentPage, itemsPerPage);
             setIsLoadingData(false);
         };
 
         if (isAuthenticated) {
             loadData();
         }
-    }, [isAuthenticated, currentPage, itemsPerPage, includeDeleted]);
+    }, [isAuthenticated, currentPage, itemsPerPage, includeDeleted, debouncedSearch, filters.species, filters.province, filters.city, filters.barangay, filters.dateFrom, filters.dateTo]);
+
+    useEffect(() => {
+        if (!isAuthenticated) return;
+        fetchBatches();
+    }, [isAuthenticated]);
+
+    useEffect(() => {
+        setSelectedIds([]);
+    }, [distributions]);
 
     useEffect(() => {
         if (!showBeneficiarySelectionModal) return;
@@ -2492,6 +2553,50 @@ const DistributionForm: React.FC = () => {
         setItemsPerPage(newLimit);
         setCurrentPage(1); // Reset to first page when changing items per page
     };
+
+    const handleFilterChange = (field: keyof DistributionTableFilters, value: string) => {
+        if (field === 'province') {
+            setCurrentPage(1);
+            setFilters(prev => ({
+                ...prev,
+                province: value,
+                city: "All",
+                barangay: "All"
+            }));
+        } else if (field === 'city') {
+            setCurrentPage(1);
+            setFilters(prev => ({
+                ...prev,
+                city: value,
+                barangay: "All"
+            }));
+        } else {
+            if (field !== 'search') setCurrentPage(1);
+            setFilters(prev => ({
+                ...prev,
+                [field]: value
+            }));
+        }
+    };
+
+    const provinceList = useMemo(() => {
+        return [...locationData.provinces].sort((a, b) => a.localeCompare(b));
+    }, []);
+
+    const cityList = useMemo(() => {
+        if (filters.province === 'All') return [];
+        return [...getCitiesForProvinceWithBarangays(filters.province)].sort((a, b) => a.localeCompare(b));
+    }, [filters.province]);
+
+    const barangayList = useMemo(() => {
+        if (filters.province === 'All' || filters.city === 'All') return [];
+        return [...getBarangaysForCity(filters.province, filters.city)].sort((a, b) => a.localeCompare(b));
+    }, [filters.province, filters.city]);
+
+    const filteredDistributions = useMemo(() => distributions, [distributions]);
+
+    const visibleIds = useMemo(() => filteredDistributions.map(d => d.id), [filteredDistributions]);
+    const allVisibleSelected = useMemo(() => visibleIds.length > 0 && visibleIds.every(id => selectedIds.includes(id)), [visibleIds, selectedIds]);
 
     if (isLoading) {
         return (
@@ -2573,11 +2678,14 @@ const DistributionForm: React.FC = () => {
 
     // Handle select all
     const handleSelectAll = () => {
-        if (selectedIds.length === distributions.length) {
-            setSelectedIds([]);
-        } else {
-            setSelectedIds(distributions.map(dist => dist.id));
+        if (visibleIds.length === 0) return;
+
+        if (allVisibleSelected) {
+            setSelectedIds(prev => prev.filter(id => !visibleIds.includes(id)));
+            return;
         }
+
+        setSelectedIds(prev => Array.from(new Set([...prev, ...visibleIds])));
     };
 
     // Handle delete confirmation
@@ -2792,6 +2900,108 @@ const DistributionForm: React.FC = () => {
                                 </div>
                             ) : (
                                 <>
+                                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Search</label>
+                                            <input
+                                                type="text"
+                                                placeholder="Search beneficiary..."
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                                value={filters.search}
+                                                onChange={(e) => handleFilterChange('search', e.target.value)}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Species</label>
+                                            <select
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                                                value={filters.species}
+                                                onChange={(e) => handleFilterChange('species', e.target.value)}
+                                            >
+                                                <option value="All">All Species</option>
+                                                <option value="Bangus">Bangus</option>
+                                                <option value="Tilapia">Tilapia</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Date From</label>
+                                            <input
+                                                type="date"
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                                value={filters.dateFrom}
+                                                onChange={(e) => handleFilterChange('dateFrom', e.target.value)}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Date To</label>
+                                            <input
+                                                type="date"
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                                value={filters.dateTo}
+                                                onChange={(e) => handleFilterChange('dateTo', e.target.value)}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Province</label>
+                                            <select
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                                                value={filters.province}
+                                                onChange={(e) => handleFilterChange('province', e.target.value)}
+                                            >
+                                                <option value="All">All Provinces</option>
+                                                {provinceList.map((p) => (
+                                                    <option key={p} value={p}>{p}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">City</label>
+                                            <select
+                                                disabled={filters.province === "All"}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white disabled:bg-gray-100 disabled:cursor-not-allowed"
+                                                value={filters.city}
+                                                onChange={(e) => handleFilterChange('city', e.target.value)}
+                                            >
+                                                <option value="All">All Cities</option>
+                                                {cityList.map((c) => (
+                                                    <option key={c} value={c}>{c}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Barangay</label>
+                                            <select
+                                                disabled={filters.province === "All" || filters.city === "All"}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white disabled:bg-gray-100 disabled:cursor-not-allowed"
+                                                value={filters.barangay}
+                                                onChange={(e) => handleFilterChange('barangay', e.target.value)}
+                                            >
+                                                <option value="All">All Barangays</option>
+                                                {barangayList.map((b) => (
+                                                    <option key={b} value={b}>{b}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div className="flex items-end">
+                                            <button
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
+                                                onClick={() => {
+                                                    setCurrentPage(1);
+                                                    setFilters(getDefaultTableFilters());
+                                                }}
+                                            >
+                                                Reset Filters
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div className="text-sm text-gray-500 mb-2">
+                                        Showing {filteredDistributions.length} of {totalDistributions} distributions
+                                    </div>
+
                                     {/* Bulk Actions */}
                                     {selectedIds.length > 0 && (
                                         <div className="mb-4 flex items-center justify-between bg-blue-50 border border-blue-200 rounded-lg p-4">
@@ -2829,7 +3039,7 @@ const DistributionForm: React.FC = () => {
                                                     <th className="px-4 py-3 text-center">
                                                         <input
                                                             type="checkbox"
-                                                            checked={selectedIds.length === distributions.length && distributions.length > 0}
+                                                            checked={allVisibleSelected}
                                                             onChange={handleSelectAll}
                                                             className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                                                         />
@@ -2848,7 +3058,7 @@ const DistributionForm: React.FC = () => {
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-gray-200">
-                                                {distributions.map((dist) => {
+                                                {filteredDistributions.map((dist) => {
                                                     const normalizedRemarks = (dist.remarks as string) === 'Pending' ? '' : dist.remarks;
                                                     const rowClassName = dist.isDeleted ? 'bg-gray-50 opacity-75' : 'hover:bg-gray-50';
                                                     return (
@@ -2963,7 +3173,7 @@ const DistributionForm: React.FC = () => {
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-gray-200">
-                                                {distributions.map((dist) => {
+                                                {filteredDistributions.map((dist) => {
                                                     const normalizedRemarks = (dist.remarks as string) === 'Pending' ? '' : dist.remarks;
                                                     const rowClassName = dist.isDeleted ? 'bg-gray-50 opacity-75' : 'hover:bg-gray-50';
                                                     return (
@@ -3029,7 +3239,7 @@ const DistributionForm: React.FC = () => {
 
                                     {/* Mobile Cards - Shown only on mobile */}
                                     <div className="block md:hidden">
-                                        {distributions.map((dist) => (
+                                        {filteredDistributions.map((dist) => (
                                             <DistributionCard
                                                 key={dist.id}
                                                 distribution={dist}

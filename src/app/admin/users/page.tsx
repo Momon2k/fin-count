@@ -87,6 +87,7 @@ const UsersTable: React.FC<{ refreshKey?: number }> = ({ refreshKey }) => {
         hasNextPage: false,
         hasPrevPage: false,
     });
+    const showEditButton = false;
 
     const fetchUsers = async (page: number = 1) => {
         try {
@@ -394,13 +395,15 @@ const UsersTable: React.FC<{ refreshKey?: number }> = ({ refreshKey }) => {
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                     <div className="flex items-center space-x-2">
-                                        <button
-                                            onClick={() => handleEdit(user)}
-                                            className="text-blue-600 hover:text-blue-900 p-1 rounded hover:bg-blue-50 transition-colors duration-150"
-                                            title="Edit user"
-                                        >
-                                            <Edit className="h-4 w-4" />
-                                        </button>
+                                        {showEditButton && (
+                                            <button
+                                                onClick={() => handleEdit(user)}
+                                                className="text-blue-600 hover:text-blue-900 p-1 rounded hover:bg-blue-50 transition-colors duration-150"
+                                                title="Edit user"
+                                            >
+                                                <Edit className="h-4 w-4" />
+                                            </button>
+                                        )}
                                         <button
                                             onClick={() => handleDeleteClick(user)}
                                             className="text-red-600 hover:text-red-900 p-1 rounded hover:bg-red-50 transition-colors duration-150"

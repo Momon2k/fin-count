@@ -396,8 +396,12 @@ const HarvestForecast: React.FC = () => {
 
         if (points.length === 0) return [];
 
-        const actualPoints = points.filter((p) => p.historical > 0 && p.predicted > 0);
+        const forecastPoints = points.filter((p) => p.predicted > 0);
+        const actualPoints = points.filter((p) => p.historical > 0);
+        const overlapPoints = points.filter((p) => p.predicted > 0 && p.historical > 0);
+        const hasForecast = forecastPoints.length >= 1;
         const hasActual = actualPoints.length >= 1;
+        const hasOverlap = overlapPoints.length >= 1;
 
         const getPeakMonth = (items: ForecastData[], key: "predicted" | "historical") => {
             return items.reduce((best, cur) => (cur[key] > best[key] ? cur : best), items[0])
@@ -420,10 +424,10 @@ const HarvestForecast: React.FC = () => {
             };
         };
 
-        const getOverallTrend = (items: ForecastData[]) => {
+        const getOverallTrend = (items: ForecastData[], key: "predicted" | "historical") => {
             if (items.length < 2) return "steady";
-            const start = items[0].predicted;
-            const end = items[items.length - 1].predicted;
+            const start = items[0][key];
+            const end = items[items.length - 1][key];
             if (start <= 0) return end > 0 ? "rising" : "steady";
             const ratio = end / start;
             if (ratio >= 1.1) return "rising";
@@ -431,12 +435,12 @@ const HarvestForecast: React.FC = () => {
             return "steady";
         };
 
-        const getLargestJump = (items: ForecastData[]) => {
+        const getLargestJump = (items: ForecastData[], key: "predicted" | "historical") => {
             if (items.length < 2) return null;
             let bestIndex = 1;
-            let bestAbs = Math.abs(items[1].predicted - items[0].predicted);
+            let bestAbs = Math.abs(items[1][key] - items[0][key]);
             for (let i = 2; i < items.length; i++) {
-                const abs = Math.abs(items[i].predicted - items[i - 1].predicted);
+                const abs = Math.abs(items[i][key] - items[i - 1][key]);
                 if (abs > bestAbs) {
                     bestAbs = abs;
                     bestIndex = i;
@@ -445,19 +449,19 @@ const HarvestForecast: React.FC = () => {
             return {
                 from: items[bestIndex - 1].month,
                 to: items[bestIndex].month,
-                direction: items[bestIndex].predicted >= items[bestIndex - 1].predicted ? "up" : "down",
+                direction: items[bestIndex][key] >= items[bestIndex - 1][key] ? "up" : "down",
             } as const;
         };
 
         const observations: string[] = [];
 
-        if (hasActual && actualPoints.length >= 3) {
+        if (hasOverlap && overlapPoints.length >= 3) {
             const sign = (n: number) => (n > 0 ? 1 : n < 0 ? -1 : 0);
             let considered = 0;
             let matches = 0;
-            for (let i = 1; i < actualPoints.length; i++) {
-                const prev = actualPoints[i - 1];
-                const cur = actualPoints[i];
+            for (let i = 1; i < overlapPoints.length; i++) {
+                const prev = overlapPoints[i - 1];
+                const cur = overlapPoints[i];
                 const dPred = cur.predicted - prev.predicted;
                 const dAct = cur.historical - prev.historical;
 
@@ -478,15 +482,15 @@ const HarvestForecast: React.FC = () => {
             }
         }
 
-        if (hasActual) {
-            const gap = getLargestGap(actualPoints);
+        if (hasOverlap) {
+            const gap = getLargestGap(overlapPoints);
             observations.push(
                 gap.diff >= 0
                     ? `Biggest gap appears around ${gap.month}, where forecast sits above actual.`
                     : `Biggest gap appears around ${gap.month}, where actual rises above forecast.`
             );
 
-            const peakForecast = getPeakMonth(points, "predicted");
+            const peakForecast = getPeakMonth(forecastPoints.length ? forecastPoints : points, "predicted");
             const peakActual = getPeakMonth(actualPoints, "historical");
             observations.push(
                 peakForecast === peakActual
@@ -494,8 +498,8 @@ const HarvestForecast: React.FC = () => {
                     : `Forecast peaks around ${peakForecast}, while actual peaks around ${peakActual}.`
             );
 
-            const sumPred = actualPoints.reduce((s, p) => s + p.predicted, 0);
-            const sumAct = actualPoints.reduce((s, p) => s + p.historical, 0);
+            const sumPred = overlapPoints.reduce((s, p) => s + p.predicted, 0);
+            const sumAct = overlapPoints.reduce((s, p) => s + p.historical, 0);
             if (sumAct > 0) {
                 const ratio = sumPred / sumAct;
                 observations.push(
@@ -506,8 +510,8 @@ const HarvestForecast: React.FC = () => {
                             : "Overall, the forecast runs lower than the actual line."
                 );
             }
-        } else {
-            const trend = getOverallTrend(points);
+        } else if (hasForecast && !hasActual) {
+            const trend = getOverallTrend(points, "predicted");
             observations.push(
                 trend === "rising"
                     ? "The forecast line rises toward the later months."
@@ -518,16 +522,40 @@ const HarvestForecast: React.FC = () => {
 
             const peakForecast = getPeakMonth(points, "predicted");
             observations.push(`The forecast reaches its high point around ${peakForecast}.`);
-            observations.push("The actual line stays low across the selected months.");
+            observations.push("The actual line stays at zero across the selected months.");
+        } else if (!hasForecast && hasActual) {
+            const trend = getOverallTrend(actualPoints, "historical");
+            observations.push(
+                trend === "rising"
+                    ? "The actual line rises toward the later months."
+                    : trend === "falling"
+                        ? "The actual line eases down toward the later months."
+                        : "The actual line stays fairly steady across the period."
+            );
+
+            const peakActual = getPeakMonth(actualPoints, "historical");
+            observations.push(`The actual line reaches its high point around ${peakActual}.`);
+            observations.push("The forecast line stays at zero across the selected months.");
         }
 
-        const jump = getLargestJump(points);
-        if (jump) {
-            observations.push(
-                jump.direction === "up"
-                    ? `A noticeable lift happens from ${jump.from} to ${jump.to}.`
-                    : `A noticeable dip happens from ${jump.from} to ${jump.to}.`
-            );
+        if (hasForecast) {
+            const jump = getLargestJump(points, "predicted");
+            if (jump) {
+                observations.push(
+                    jump.direction === "up"
+                        ? `A noticeable lift happens from ${jump.from} to ${jump.to}.`
+                        : `A noticeable dip happens from ${jump.from} to ${jump.to}.`
+                );
+            }
+        } else if (hasActual) {
+            const jump = getLargestJump(actualPoints, "historical");
+            if (jump) {
+                observations.push(
+                    jump.direction === "up"
+                        ? `A noticeable lift happens from ${jump.from} to ${jump.to}.`
+                        : `A noticeable dip happens from ${jump.from} to ${jump.to}.`
+                );
+            }
         }
 
         const unique = Array.from(new Set(observations));

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { Users, TrendingUp, BarChart3, Scale, RefreshCw, Download, Filter, Fish, Trophy, Calendar, MapPin, Building2 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip, Legend, LineChart, Line, PieChart, Pie, Cell } from "recharts";
 import AsideNavigation from "../components/aside.navigation";
@@ -8,7 +8,7 @@ import { LogoutModal } from "@/app/components/logout.modal";
 import { LogoutProvider } from "@/app/context/logout";
 import { useNotification } from "@/app/context/notification";
 import { withAuth } from "@/server/with.auth";
-import { getCitiesForProvinceWithBarangays, locationData } from "@/app/components/data/location.data";
+import { getBarangaysForCity, getCitiesForProvinceWithBarangays, locationData } from "@/app/components/data/location.data";
 
 interface HarvestData {
     location: string;
@@ -72,11 +72,18 @@ interface FingerlingsState {
 }
 
 interface LeaderboardState {
-    selectedSpecies: 'all' | 'tilapia' | 'bangus';
-    selectedFacilityType: 'all' | 'fish_cage' | 'pond';
     data: BeneficiaryData[];
     isLoading: boolean;
 }
+
+type HarvestLeaderboardFilters = {
+    dateFrom: string;
+    dateTo: string;
+    species: "All" | "Bangus" | "Tilapia";
+    province: string;
+    city: string;
+    barangay: string;
+};
 
 const FullScreenLoader = () => (
     <div className="flex items-center justify-center">
@@ -114,11 +121,19 @@ const DataVisualization: React.FC = () => {
     });
 
     const [leaderboardState, setLeaderboardState] = useState<LeaderboardState>({
-        selectedSpecies: 'all',
-        selectedFacilityType: 'all',
         data: [],
         isLoading: false
     });
+
+    const getDefaultLeaderboardFilters = (): HarvestLeaderboardFilters => ({
+        dateFrom: '2023-01-01',
+        dateTo: getTodayDateString(),
+        species: "All",
+        province: "All",
+        city: "All",
+        barangay: "All"
+    });
+    const [leaderboardFilters, setLeaderboardFilters] = useState<HarvestLeaderboardFilters>(() => getDefaultLeaderboardFilters());
 
     const [harvestState, setHarvestState] = useState<HarvestState>({
         dateFrom: '2023-01-01',
@@ -379,14 +394,30 @@ const DataVisualization: React.FC = () => {
     };
 
     // Fetch real beneficiary data from distribution API
-    const fetchBeneficiaryData = async (): Promise<BeneficiaryData[]> => {
+    const fetchBeneficiaryData = async (filters: HarvestLeaderboardFilters): Promise<BeneficiaryData[]> => {
         try {
             // Build query parameters
             const params = new URLSearchParams();
 
-            // Add species filter if not 'all'
-            if (leaderboardState.selectedSpecies !== 'all') {
-                params.append('species', leaderboardState.selectedSpecies === 'tilapia' ? 'Tilapia' : 'Bangus');
+            if (filters.dateFrom) {
+                params.append('startDate', filters.dateFrom);
+            }
+            if (filters.dateTo) {
+                params.append('endDate', filters.dateTo);
+            }
+
+            if (filters.species !== "All") {
+                params.append('species', filters.species);
+            }
+
+            if (filters.province !== "All") {
+                params.append('province', filters.province);
+            }
+            if (filters.city !== "All") {
+                params.append('municipality', filters.city);
+            }
+            if (filters.barangay !== "All") {
+                params.append('barangay', filters.barangay);
             }
 
             // Fetch a large limit to get all records for leaderboard
@@ -631,7 +662,7 @@ const DataVisualization: React.FC = () => {
     // Handle leaderboard refresh
     const handleLeaderboardRefresh = async () => {
         setLeaderboardState(prev => ({ ...prev, isLoading: true }));
-        const newData = await fetchBeneficiaryData();
+        const newData = await fetchBeneficiaryData(leaderboardFilters);
         setLeaderboardState(prev => ({
             ...prev,
             data: newData,
@@ -922,19 +953,59 @@ const DataVisualization: React.FC = () => {
     // Initialize data
     useEffect(() => {
         handleFingerlingsCompare({ dateTo: getTodayDateString() });
-        handleLeaderboardRefresh();
         handleHarvestCompare({ dateTo: getTodayDateString() });
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+    useEffect(() => {
+        let cancelled = false;
+        const run = async () => {
+            setLeaderboardState(prev => ({ ...prev, isLoading: true }));
+            const data = await fetchBeneficiaryData(leaderboardFilters);
+            if (cancelled) return;
+            setLeaderboardState(prev => ({
+                ...prev,
+                data,
+                isLoading: false
+            }));
+        };
+        run();
+        return () => {
+            cancelled = true;
+        };
+    }, [leaderboardFilters]);
+
     // Filter leaderboard data
-    const filteredLeaderboardData = leaderboardState.data
-        .filter(item =>
-            (leaderboardState.selectedSpecies === 'all' || item.species === leaderboardState.selectedSpecies) &&
-            (leaderboardState.selectedFacilityType === 'all' || item.facilityType === leaderboardState.selectedFacilityType)
-        )
-        .sort((a, b) => b.actualHarvestKilos - a.actualHarvestKilos)
-        .slice(0, 10);
-    console.log("🚀 ~ DataVisualization ~ filteredLeaderboardData:", filteredLeaderboardData)
+    const filteredLeaderboardData = useMemo(() => {
+        return leaderboardState.data
+            .filter(item => {
+                if (leaderboardFilters.species !== "All") {
+                    const speciesMatch = leaderboardFilters.species === "Tilapia" ? item.species === 'tilapia' : item.species === 'bangus';
+                    if (!speciesMatch) return false;
+                }
+                if (leaderboardFilters.province !== "All" && item.province !== leaderboardFilters.province) return false;
+                if (leaderboardFilters.city !== "All" && item.city !== leaderboardFilters.city) return false;
+                if (leaderboardFilters.barangay !== "All" && item.barangay !== leaderboardFilters.barangay) return false;
+                if (leaderboardFilters.dateFrom && new Date(item.distributionDate) < new Date(leaderboardFilters.dateFrom)) return false;
+                if (leaderboardFilters.dateTo && new Date(item.distributionDate) > new Date(leaderboardFilters.dateTo)) return false;
+                return true;
+            })
+            .sort((a, b) => b.actualHarvestKilos - a.actualHarvestKilos)
+            .slice(0, 10);
+    }, [leaderboardState.data, leaderboardFilters]);
+
+    const leaderboardProvinceList = useMemo(() => {
+        return [...locationData.provinces].sort((a, b) => a.localeCompare(b));
+    }, []);
+
+    const leaderboardCityList = useMemo(() => {
+        if (leaderboardFilters.province === "All") return [];
+        return [...getCitiesForProvinceWithBarangays(leaderboardFilters.province)].sort((a, b) => a.localeCompare(b));
+    }, [leaderboardFilters.province]);
+
+    const leaderboardBarangayList = useMemo(() => {
+        if (leaderboardFilters.province === "All" || leaderboardFilters.city === "All") return [];
+        return [...getBarangaysForCity(leaderboardFilters.province, leaderboardFilters.city)].sort((a, b) => a.localeCompare(b));
+    }, [leaderboardFilters.province, leaderboardFilters.city]);
 
     // Custom tooltip for charts
     const CustomTooltip = ({ active, payload, label }: any) => {
@@ -1546,34 +1617,105 @@ const DataVisualization: React.FC = () => {
                                             <h2 className="text-xl font-semibold text-gray-900">Harvest Leaderboard</h2>
                                         </div>
 
-                                        <div className="flex items-center gap-4">
-                                            <select
-                                                value={leaderboardState.selectedSpecies}
-                                                onChange={(e) => setLeaderboardState(prev => ({ ...prev, selectedSpecies: e.target.value as any }))}
-                                                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                                            >
-                                                <option value="all">All Species</option>
-                                                <option value="tilapia">Tilapia</option>
-                                                <option value="bangus">Bangus</option>
-                                            </select>
+                                        <button
+                                            onClick={() => setLeaderboardFilters(getDefaultLeaderboardFilters())}
+                                            disabled={leaderboardState.isLoading}
+                                            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-300 flex items-center gap-2"
+                                        >
+                                            {leaderboardState.isLoading ? (
+                                                <>
+                                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                                    Loading...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <RefreshCw className="h-4 w-4" />
+                                                    Reset
+                                                </>
+                                            )}
+                                        </button>
+                                    </div>
 
-                                            <button
-                                                onClick={handleLeaderboardRefresh}
-                                                disabled={leaderboardState.isLoading}
-                                                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-300 flex items-center gap-2"
+                                    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Date From</label>
+                                            <input
+                                                type="date"
+                                                value={leaderboardFilters.dateFrom}
+                                                onChange={(e) => setLeaderboardFilters(prev => ({ ...prev, dateFrom: e.target.value }))}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Date To</label>
+                                            <input
+                                                type="date"
+                                                value={leaderboardFilters.dateTo}
+                                                onChange={(e) => setLeaderboardFilters(prev => ({ ...prev, dateTo: e.target.value }))}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Species</label>
+                                            <select
+                                                value={leaderboardFilters.species}
+                                                onChange={(e) => setLeaderboardFilters(prev => ({ ...prev, species: e.target.value as HarvestLeaderboardFilters['species'] }))}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
                                             >
-                                                {leaderboardState.isLoading ? (
-                                                    <>
-                                                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                                                        Loading...
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <RefreshCw className="h-4 w-4" />
-                                                        Refresh
-                                                    </>
-                                                )}
-                                            </button>
+                                                <option value="All">All Species</option>
+                                                <option value="Bangus">Bangus</option>
+                                                <option value="Tilapia">Tilapia</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Province</label>
+                                            <select
+                                                value={leaderboardFilters.province}
+                                                onChange={(e) => setLeaderboardFilters(prev => ({
+                                                    ...prev,
+                                                    province: e.target.value,
+                                                    city: "All",
+                                                    barangay: "All"
+                                                }))}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                                            >
+                                                <option value="All">All Provinces</option>
+                                                {leaderboardProvinceList.map((province) => (
+                                                    <option key={province} value={province}>{province}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">City</label>
+                                            <select
+                                                disabled={leaderboardFilters.province === "All"}
+                                                value={leaderboardFilters.city}
+                                                onChange={(e) => setLeaderboardFilters(prev => ({
+                                                    ...prev,
+                                                    city: e.target.value,
+                                                    barangay: "All"
+                                                }))}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white disabled:bg-gray-100 disabled:cursor-not-allowed"
+                                            >
+                                                <option value="All">All Cities</option>
+                                                {leaderboardCityList.map((city) => (
+                                                    <option key={city} value={city}>{city}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Barangay</label>
+                                            <select
+                                                disabled={leaderboardFilters.province === "All" || leaderboardFilters.city === "All"}
+                                                value={leaderboardFilters.barangay}
+                                                onChange={(e) => setLeaderboardFilters(prev => ({ ...prev, barangay: e.target.value }))}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white disabled:bg-gray-100 disabled:cursor-not-allowed"
+                                            >
+                                                <option value="All">All Barangays</option>
+                                                {leaderboardBarangayList.map((barangay) => (
+                                                    <option key={barangay} value={barangay}>{barangay}</option>
+                                                ))}
+                                            </select>
                                         </div>
                                     </div>
 
