@@ -182,6 +182,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const municipality = body.municipality ?? body.city;
+    const requestedUserId = Number(body.userId);
 
     // Validate required fields
     const requiredFields = [
@@ -215,6 +216,37 @@ export async function POST(request: NextRequest) {
         400
       );
     }
+
+    if (!Number.isInteger(requestedUserId) || requestedUserId <= 0) {
+      return jsonResponse(
+        {
+          success: false,
+          error: "Invalid userId",
+        },
+        400
+      );
+    }
+
+    const user = await models.User.findByPk(requestedUserId);
+    const fallbackUser =
+      user ??
+      (await models.User.findOne({
+        where: { userType: "admin" },
+        order: [["id", "ASC"]],
+      })) ??
+      (await models.User.findOne({ order: [["id", "ASC"]] }));
+
+    if (!fallbackUser) {
+      return jsonResponse(
+        {
+          success: false,
+          error: "No valid user found to associate this distribution",
+        },
+        400
+      );
+    }
+
+    const effectiveUserId = fallbackUser.id;
 
     // Validate species
     if (!["Tilapia", "Bangus"].includes(body.species)) {
@@ -264,7 +296,7 @@ export async function POST(request: NextRequest) {
           id: batchId,
           name: batchId,
           description: null,
-          userId: body.userId,
+          userId: effectiveUserId,
           totalCount: body.fingerlings,
           isActive: true,
         });
@@ -357,7 +389,7 @@ export async function POST(request: NextRequest) {
       province: body.province,
       fingerlings: body.fingerlings,
       species: body.species,
-      userId: body.userId,
+      userId: effectiveUserId,
       batchId: body.batchId || null,
       forecastedHarvestDate: forecastedHarvestDate,
       forecastedHarvestKilos,
@@ -388,6 +420,10 @@ export async function POST(request: NextRequest) {
         success: true,
         data: distributionWithUser,
         message: "Distribution record created successfully",
+        warning:
+          user && effectiveUserId === requestedUserId
+            ? null
+            : "Requested userId was not found; using a fallback user",
       },
       201
     );
