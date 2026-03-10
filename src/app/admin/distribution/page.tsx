@@ -1357,10 +1357,10 @@ const DistributionFormModal: React.FC<{
                                         <input
                                             type="number"
                                             value={formData.fingerlingsCount || ''}
-                                            onChange={(e) => handleInputChange('fingerlingsCount', parseInt(e.target.value) || 0)}
+                                            readOnly
+                                            disabled
                                             placeholder="Will be auto-filled when batch is selected"
-                                            className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${errors.fingerlingsCount ? 'border-red-300 bg-red-50' : 'border-gray-300'
-                                                }`}
+                                            className="w-full p-3 border border-gray-300 rounded-lg bg-gray-50 text-gray-700 cursor-not-allowed"
                                             min="0"
                                         />
                                         {selectedBatch && (
@@ -2297,6 +2297,7 @@ const DistributionForm: React.FC = () => {
     // State management
     const [distributions, setDistributions] = useState<Distribution[]>([]);
     const [batches, setBatches] = useState<Batch[]>([]);
+    const isFetchingBatchesRef = useRef(false);
     const [showFormModal, setShowFormModal] = useState(false);
     const [showNewBeneficiaryPrompt, setShowNewBeneficiaryPrompt] = useState(false);
     const [showBeneficiaryProfilingModal, setShowBeneficiaryProfilingModal] = useState(false);
@@ -2456,6 +2457,8 @@ const DistributionForm: React.FC = () => {
 
     // Fetch batches from sessions API
     const fetchBatches = async () => {
+        if (isFetchingBatchesRef.current) return;
+        isFetchingBatchesRef.current = true;
         try {
             const response = await fetch('https://fincount-api-production.up.railway.app/api/sessions');
             const data = await response.json();
@@ -2496,6 +2499,8 @@ const DistributionForm: React.FC = () => {
             }
         } catch (error) {
             console.error('Error fetching sessions:', error);
+        } finally {
+            isFetchingBatchesRef.current = false;
         }
     };
 
@@ -2525,6 +2530,16 @@ const DistributionForm: React.FC = () => {
         if (!isAuthenticated) return;
         fetchBatches();
     }, [isAuthenticated]);
+
+    useEffect(() => {
+        if (!isAuthenticated) return;
+        if (!showFormModal) return;
+        fetchBatches();
+        const interval = setInterval(() => {
+            fetchBatches();
+        }, 8000);
+        return () => clearInterval(interval);
+    }, [isAuthenticated, showFormModal]);
 
     useEffect(() => {
         setSelectedIds([]);
@@ -2640,6 +2655,7 @@ const DistributionForm: React.FC = () => {
         setShowSuccess(true);
         setCurrentPage(1);
         fetchDistributions(1, itemsPerPage);
+        fetchBatches();
 
         setTimeout(() => {
             setShowSuccess(false);
