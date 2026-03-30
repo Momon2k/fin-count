@@ -6,11 +6,12 @@ import Batch from "./batch";
 import Session from "./session";
 import Distribution from "./distribution";
 import Beneficiary from "./beneficiary";
+import DistributionImage from "./distribution.image";
 
 // Import associations to ensure they are loaded
 import "./associations";
 
-/* -- 
+/* --
  dre ma export tanan ang mga models para dali ra tawagon....
 -- */
 
@@ -25,4 +26,5 @@ export default {
   Session,
   Distribution,
   Beneficiary,
+  DistributionImage,
 };

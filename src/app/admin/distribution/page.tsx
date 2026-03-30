@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { Users, User, Calendar, MapPin, Building2, FileText, Save, AlertCircle, CheckCircle, X, Fish, Eye, ChevronDown, ChevronUp, Plus, Edit3, Trash2, RotateCcw } from "lucide-react";
+import { Users, User, Calendar, MapPin, Building2, FileText, Save, AlertCircle, CheckCircle, X, Fish, Eye, ChevronDown, ChevronUp, Plus, Edit3, Trash2, RotateCcw, Camera, ImageIcon } from "lucide-react";
 import AsideNavigation from "../components/aside.navigation";
 import { LogoutModal } from "@/app/components/logout.modal";
 import { LogoutProvider } from "@/app/context/logout";
@@ -1832,6 +1832,107 @@ const DetailModal: React.FC<{
     const [promptMessage, setPromptMessage] = useState('');
     const distributionRemarks = (distribution.remarks as string) === 'Pending' ? '' : distribution.remarks;
 
+    // Image proof state
+    const [openImageModal, setOpenImageModal] = useState(false);
+    const [proofImages, setProofImages] = useState<{ id: number; imageUrl: string }[]>([]);
+    const [isLoadingImages, setIsLoadingImages] = useState(false);
+    const [isUploadingImages, setIsUploadingImages] = useState(false);
+    const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [isDeleteMode, setIsDeleteMode] = useState(false);
+    const [selectedImageId, setSelectedImageId] = useState<number | null>(null);
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+    const [isDeletingImage, setIsDeletingImage] = useState(false);
+
+    const fetchImages = async () => {
+        setIsLoadingImages(true);
+        try {
+            const res = await fetch(`/api/distribution-images?distributionId=${distribution.id}`);
+            const data = await res.json();
+            if (data.success) {
+                setProofImages(data.images);
+            }
+        } catch (err) {
+            console.error("Error fetching distribution images:", err);
+        } finally {
+            setIsLoadingImages(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchImages();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = e.target.files;
+        if (!files || files.length === 0) return;
+
+        setIsUploadingImages(true);
+        try {
+            const uploadedUrls: string[] = [];
+
+            for (const file of Array.from(files)) {
+                const formData = new FormData();
+                formData.append("file", file);
+
+                const res = await fetch("/api/upload", { method: "POST", body: formData });
+                const data = await res.json();
+
+                if (!data.success) {
+                    alert(`Failed to upload ${file.name}: ${data.error}`);
+                    continue;
+                }
+                uploadedUrls.push(data.fileUrl);
+            }
+
+            if (uploadedUrls.length === 0) return;
+
+            const saveRes = await fetch("/api/distribution-images", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ distributionId: distribution.id, imageUrls: uploadedUrls }),
+            });
+            const saveData = await saveRes.json();
+
+            if (saveData.success) {
+                setProofImages(prev => [...prev, ...saveData.images]);
+            }
+        } catch (err) {
+            console.error("Error uploading images:", err);
+            alert("An error occurred while uploading images.");
+        } finally {
+            setIsUploadingImages(false);
+            if (fileInputRef.current) fileInputRef.current.value = '';
+        }
+    };
+
+    const handleSelectForDelete = (id: number) => {
+        setSelectedImageId(id);
+        setShowDeleteConfirm(true);
+    };
+
+    const handleDeleteImage = async () => {
+        if (!selectedImageId) return;
+        setIsDeletingImage(true);
+        try {
+            const res = await fetch(`/api/distribution-images/${selectedImageId}`, { method: 'DELETE' });
+            const data = await res.json();
+            if (data.success) {
+                setProofImages(prev => prev.filter(img => img.id !== selectedImageId));
+            } else {
+                alert('Failed to delete image.');
+            }
+        } catch (err) {
+            console.error('Error deleting image:', err);
+            alert('An error occurred while deleting the image.');
+        } finally {
+            setIsDeletingImage(false);
+            setShowDeleteConfirm(false);
+            setSelectedImageId(null);
+        }
+    };
+
     const remarks = editData.remarks;
     const isHarvested = remarks === 'Harvested';
     const hideActualInputs =
@@ -2024,10 +2125,25 @@ const DetailModal: React.FC<{
 
                         {/* Distribution Details */}
                         <div className="bg-green-50 rounded-lg p-4">
-                            <h4 className="font-semibold text-green-900 mb-3 flex items-center gap-2">
-                                <Fish className="h-5 w-5" />
-                                Distribution Details
-                            </h4>
+                            <div className="flex justify-between items-center mb-3">
+                                <h4 className="font-semibold text-green-900 flex items-center gap-2">
+                                    <Fish className="h-5 w-5" />
+                                    Distribution Details
+                                </h4>
+                                <button
+                                    onClick={() => setOpenImageModal(true)}
+                                    disabled={!distribution.id}
+                                    className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors"
+                                >
+                                    <Camera className="h-4 w-4" />
+                                    Insert Image
+                                    {proofImages.length > 0 && (
+                                        <span className="bg-white text-blue-600 text-xs font-bold px-1.5 py-0.5 rounded-full leading-none">
+                                            {proofImages.length}
+                                        </span>
+                                    )}
+                                </button>
+                            </div>
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                 <div>
                                     <span className="text-green-600 font-medium">Batch ID:</span>
@@ -2283,6 +2399,211 @@ const DetailModal: React.FC<{
                     </div>
                 </div>
             </div>
+
+            {/* Image Proof Modal */}
+            {openImageModal && (
+                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60] p-4">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-xl">
+                        <div className="p-6">
+                            <div className="flex items-center justify-between mb-4">
+                                <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                                    <Camera className="h-5 w-5 text-blue-600" />
+                                    Distribution Images
+                                </h2>
+                                <button
+                                    onClick={() => { setOpenImageModal(false); setIsDeleteMode(false); setSelectedImageId(null); setShowDeleteConfirm(false); }}
+                                    className="text-gray-400 hover:text-gray-600 p-1 rounded"
+                                >
+                                    <X className="h-5 w-5" />
+                                </button>
+                            </div>
+
+                            {/* Upload trigger */}
+                            <div className="mb-4">
+                                <input
+                                    ref={fileInputRef}
+                                    id="distribution-image-upload"
+                                    type="file"
+                                    multiple
+                                    accept="image/*"
+                                    onChange={handleImageUpload}
+                                    className="hidden"
+                                    disabled={isUploadingImages}
+                                />
+                                <div className="flex items-center gap-2">
+                                    <label
+                                        htmlFor="distribution-image-upload"
+                                        className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                                            isUploadingImages
+                                                ? 'bg-gray-100 text-gray-400 cursor-not-allowed pointer-events-none'
+                                                : 'bg-blue-600 hover:bg-blue-700 text-white cursor-pointer'
+                                        }`}
+                                    >
+                                        {isUploadingImages ? (
+                                            <>
+                                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-400" />
+                                                Uploading...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Plus className="h-4 w-4" />
+                                                Add Photos
+                                            </>
+                                        )}
+                                    </label>
+                                    {proofImages.length > 0 && (
+                                        <button
+                                            onClick={() => {
+                                                setIsDeleteMode(prev => !prev);
+                                                setSelectedImageId(null);
+                                                setShowDeleteConfirm(false);
+                                            }}
+                                            className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                                                isDeleteMode
+                                                    ? 'bg-red-600 hover:bg-red-700 text-white'
+                                                    : 'bg-red-100 hover:bg-red-200 text-red-700'
+                                            }`}
+                                        >
+                                            <Trash2 className="h-4 w-4" />
+                                            {isDeleteMode ? 'Cancel' : 'Delete Image'}
+                                        </button>
+                                    )}
+                                </div>
+                                <p className="text-xs text-gray-500 mt-1">
+                                    Max 2MB per image · JPG, PNG, GIF, WebP
+                                </p>
+                                {isDeleteMode && (
+                                    <p className="text-xs text-red-500 mt-1 font-medium">
+                                        Select a photo to delete it
+                                    </p>
+                                )}
+                            </div>
+
+                            {/* Carousel */}
+                            {isLoadingImages ? (
+                                <div className="flex items-center justify-center h-28">
+                                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600" />
+                                </div>
+                            ) : proofImages.length === 0 ? (
+                                <div className="flex flex-col items-center justify-center h-28 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+                                    <ImageIcon className="h-8 w-8 text-gray-400 mb-2" />
+                                    <p className="text-sm text-gray-500">No proof images yet</p>
+                                </div>
+                            ) : (
+                                <div className="flex gap-3 overflow-x-auto pb-2">
+                                    {proofImages.map((img) => (
+                                        <div key={img.id} className="relative flex-shrink-0">
+                                            <img
+                                                src={img.imageUrl}
+                                                alt="Distribution proof"
+                                                className={`w-24 h-24 object-cover rounded-lg border-2 transition-colors ${
+                                                    isDeleteMode
+                                                        ? 'cursor-pointer border-red-300 hover:border-red-500'
+                                                        : 'cursor-pointer border-gray-200 hover:border-blue-400'
+                                                }`}
+                                                onClick={() =>
+                                                    isDeleteMode
+                                                        ? handleSelectForDelete(img.id)
+                                                        : setFullscreenImage(img.imageUrl)
+                                                }
+                                            />
+                                            {isDeleteMode && (
+                                                <div
+                                                    className="absolute inset-0 bg-red-500/20 hover:bg-red-500/40 rounded-lg flex items-center justify-center cursor-pointer transition-colors"
+                                                    onClick={() => handleSelectForDelete(img.id)}
+                                                >
+                                                    <Trash2 className="h-5 w-5 text-red-600 drop-shadow" />
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+
+                            <div className="flex justify-end mt-4">
+                                <button
+                                    onClick={() => { setOpenImageModal(false); setIsDeleteMode(false); setSelectedImageId(null); setShowDeleteConfirm(false); }}
+                                    className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg text-sm font-medium transition-colors"
+                                >
+                                    Close
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Delete Image Confirmation */}
+            {showDeleteConfirm && (
+                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[80] p-4">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6">
+                        <h3 className="text-base font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                            <Trash2 className="h-4 w-4 text-red-600" />
+                            Delete Image
+                        </h3>
+                        {selectedImageId && (() => {
+                            const img = proofImages.find(i => i.id === selectedImageId);
+                            return img ? (
+                                <img
+                                    src={img.imageUrl}
+                                    alt="To be deleted"
+                                    className="w-full h-40 object-cover rounded-lg mb-3 border border-gray-200"
+                                />
+                            ) : null;
+                        })()}
+                        <p className="text-sm text-gray-600 mb-5">
+                            Are you sure you want to delete this image? This action cannot be undone.
+                        </p>
+                        <div className="flex gap-2 justify-end">
+                            <button
+                                onClick={() => { setShowDeleteConfirm(false); setSelectedImageId(null); }}
+                                disabled={isDeletingImage}
+                                className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleDeleteImage}
+                                disabled={isDeletingImage}
+                                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium flex items-center gap-2 transition-colors disabled:opacity-70"
+                            >
+                                {isDeletingImage ? (
+                                    <>
+                                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
+                                        Deleting...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Trash2 className="h-4 w-4" />
+                                        Delete
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Fullscreen Image Preview */}
+            {fullscreenImage && (
+                <div
+                    className="fixed inset-0 bg-black/90 flex items-center justify-center z-[70] cursor-pointer"
+                    onClick={() => setFullscreenImage(null)}
+                >
+                    <button
+                        className="absolute top-4 right-4 text-white bg-black/50 hover:bg-black/70 rounded-full p-2 transition-colors"
+                        onClick={() => setFullscreenImage(null)}
+                    >
+                        <X className="h-6 w-6" />
+                    </button>
+                    <img
+                        src={fullscreenImage}
+                        alt="Full size preview"
+                        className="max-w-[90vw] max-h-[90vh] rounded-lg object-contain"
+                        onClick={(e) => e.stopPropagation()}
+                    />
+                </div>
+            )}
         </div>
     );
 };

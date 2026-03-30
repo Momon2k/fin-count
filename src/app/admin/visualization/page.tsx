@@ -26,6 +26,7 @@ interface HarvestData {
 interface HarvestState {
     dateFrom: string;
     dateTo: string;
+    selectedSpecies: string;
     selectedProvince: string;
     selectedCity: string;
     selectedBarangay: string;
@@ -63,6 +64,7 @@ interface BeneficiaryData {
 interface FingerlingsState {
     dateFrom: string;
     dateTo: string;
+    selectedSpecies: string;
     selectedProvince: string;
     selectedCity: string;
     selectedBarangay: string;
@@ -112,6 +114,7 @@ const DataVisualization: React.FC = () => {
     const [fingerlingsState, setFingerlingsState] = useState<FingerlingsState>({
         dateFrom: '2023-01-01',
         dateTo: '',
+        selectedSpecies: 'all',
         selectedProvince: 'all',
         selectedCity: 'all',
         selectedBarangay: 'all',
@@ -138,6 +141,7 @@ const DataVisualization: React.FC = () => {
     const [harvestState, setHarvestState] = useState<HarvestState>({
         dateFrom: '2023-01-01',
         dateTo: '',
+        selectedSpecies: 'all',
         selectedProvince: 'all',
         selectedCity: 'all',
         selectedBarangay: 'all',
@@ -170,6 +174,9 @@ const DataVisualization: React.FC = () => {
             }
             if (state.selectedBarangay !== 'all' && state.selectedBarangay !== 'All Barangays') {
                 params.append('barangay', state.selectedBarangay);
+            }
+            if (state.selectedSpecies !== 'all') {
+                params.append('species', state.selectedSpecies);
             }
 
             // Get more records for aggregation
@@ -301,7 +308,7 @@ const DataVisualization: React.FC = () => {
     };
 
     // Handle harvest comparison - Fetch real data from API
-    type HarvestFilters = Pick<HarvestState, 'dateFrom' | 'dateTo' | 'selectedProvince' | 'selectedCity' | 'selectedBarangay' | 'selectedFacilityType'>;
+    type HarvestFilters = Pick<HarvestState, 'dateFrom' | 'dateTo' | 'selectedSpecies' | 'selectedProvince' | 'selectedCity' | 'selectedBarangay' | 'selectedFacilityType'>;
 
     const handleHarvestCompare = async (overrides: Partial<HarvestFilters> = {}) => {
         const currentState: HarvestState = {
@@ -504,12 +511,13 @@ const DataVisualization: React.FC = () => {
     };
 
     // Handle fingerlings comparison - Fetch real data from API with all filters
-    type FingerlingsFilters = Pick<FingerlingsState, 'dateFrom' | 'dateTo' | 'selectedProvince' | 'selectedCity' | 'selectedBarangay' | 'selectedFacilityType'>;
+    type FingerlingsFilters = Pick<FingerlingsState, 'dateFrom' | 'dateTo' | 'selectedSpecies' | 'selectedProvince' | 'selectedCity' | 'selectedBarangay' | 'selectedFacilityType'>;
 
     const handleFingerlingsCompare = async (overrides: Partial<FingerlingsFilters> = {}) => {
         const filters: FingerlingsFilters = {
             dateFrom: overrides.dateFrom ?? fingerlingsState.dateFrom,
             dateTo: overrides.dateTo ?? fingerlingsState.dateTo,
+            selectedSpecies: overrides.selectedSpecies ?? fingerlingsState.selectedSpecies,
             selectedProvince: overrides.selectedProvince ?? fingerlingsState.selectedProvince,
             selectedCity: overrides.selectedCity ?? fingerlingsState.selectedCity,
             selectedBarangay: overrides.selectedBarangay ?? fingerlingsState.selectedBarangay,
@@ -536,6 +544,9 @@ const DataVisualization: React.FC = () => {
             }
             if (filters.selectedBarangay !== 'all' && filters.selectedBarangay !== 'All Barangays') {
                 detailParams.append('barangay', filters.selectedBarangay);
+            }
+            if (filters.selectedSpecies !== 'all') {
+                detailParams.append('species', filters.selectedSpecies);
             }
             detailParams.append('limit', '1000'); // Get more records for aggregation
 
@@ -706,6 +717,9 @@ const DataVisualization: React.FC = () => {
             if (newState.selectedBarangay !== 'all' && newState.selectedBarangay !== 'All Barangays') {
                 detailParams.append('barangay', newState.selectedBarangay);
             }
+            if (newState.selectedSpecies !== 'all') {
+                detailParams.append('species', newState.selectedSpecies);
+            }
             detailParams.append('limit', '1000');
 
             const detailResponse = await fetch(`/api/distributions-data?${detailParams.toString()}`);
@@ -844,6 +858,9 @@ const DataVisualization: React.FC = () => {
             }
             if (newState.selectedBarangay !== 'all' && newState.selectedBarangay !== 'All Barangays') {
                 detailParams.append('barangay', newState.selectedBarangay);
+            }
+            if (newState.selectedSpecies !== 'all') {
+                detailParams.append('species', newState.selectedSpecies);
             }
             detailParams.append('limit', '1000');
 
@@ -1118,13 +1135,13 @@ const DataVisualization: React.FC = () => {
                                     </div>
 
                                     {/* Filters */}
-                                    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
+                                    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-4">
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 mb-1">Date From</label>
                                             <input
                                                 type="date"
                                                 value={fingerlingsState.dateFrom}
-                                                onChange={(e) => setFingerlingsState(prev => ({ ...prev, dateFrom: e.target.value }))}
+                                                onChange={(e) => handleFingerlingsCompare({ dateFrom: e.target.value })}
                                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                             />
                                         </div>
@@ -1133,9 +1150,21 @@ const DataVisualization: React.FC = () => {
                                             <input
                                                 type="date"
                                                 value={fingerlingsState.dateTo}
-                                                onChange={(e) => setFingerlingsState(prev => ({ ...prev, dateTo: e.target.value }))}
+                                                onChange={(e) => handleFingerlingsCompare({ dateTo: e.target.value })}
                                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                             />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Species</label>
+                                            <select
+                                                value={fingerlingsState.selectedSpecies}
+                                                onChange={(e) => handleFingerlingsCompare({ selectedSpecies: e.target.value })}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                                            >
+                                                <option value="all">All Species</option>
+                                                <option value="Bangus">Bangus</option>
+                                                <option value="Tilapia">Tilapia</option>
+                                            </select>
                                         </div>
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 mb-1">Province</label>
@@ -1198,6 +1227,9 @@ const DataVisualization: React.FC = () => {
                                                         }
                                                         if (newState.selectedBarangay !== 'all' && newState.selectedBarangay !== 'All Barangays') {
                                                             detailParams.append('barangay', newState.selectedBarangay);
+                                                        }
+                                                        if (newState.selectedSpecies !== 'all') {
+                                                            detailParams.append('species', newState.selectedSpecies);
                                                         }
                                                         detailParams.append('limit', '1000');
 
@@ -1346,6 +1378,7 @@ const DataVisualization: React.FC = () => {
                                     </div> */}
 
                                     {/* Chart */}
+                                    <div className="border-b border-gray-200 mb-4" />
                                     <div className="relative">
                                         {fingerlingsState.isLoading ? (
                                             <div className="h-96 flex items-center justify-center bg-gray-50 rounded-lg">
@@ -1429,13 +1462,13 @@ const DataVisualization: React.FC = () => {
                                     </div>
 
                                     {/* Filters */}
-                                    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
+                                    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-4">
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 mb-1">Date From</label>
                                             <input
                                                 type="date"
                                                 value={harvestState.dateFrom}
-                                                onChange={(e) => setHarvestState(prev => ({ ...prev, dateFrom: e.target.value }))}
+                                                onChange={(e) => handleHarvestCompare({ dateFrom: e.target.value })}
                                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                             />
                                         </div>
@@ -1444,9 +1477,21 @@ const DataVisualization: React.FC = () => {
                                             <input
                                                 type="date"
                                                 value={harvestState.dateTo}
-                                                onChange={(e) => setHarvestState(prev => ({ ...prev, dateTo: e.target.value }))}
+                                                onChange={(e) => handleHarvestCompare({ dateTo: e.target.value })}
                                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                             />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Species</label>
+                                            <select
+                                                value={harvestState.selectedSpecies}
+                                                onChange={(e) => handleHarvestCompare({ selectedSpecies: e.target.value })}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                                            >
+                                                <option value="all">All Species</option>
+                                                <option value="Bangus">Bangus</option>
+                                                <option value="Tilapia">Tilapia</option>
+                                            </select>
                                         </div>
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 mb-1">Province</label>
@@ -1541,6 +1586,7 @@ const DataVisualization: React.FC = () => {
                                     </div> */}
 
                                     {/* Chart */}
+                                    <div className="border-b border-gray-200 mb-4" />
                                     <div className="relative">
                                         {harvestState.isLoading ? (
                                             <div className="h-96 flex items-center justify-center bg-gray-50 rounded-lg">
@@ -1571,8 +1617,8 @@ const DataVisualization: React.FC = () => {
                                                         <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6b7280' }} tickFormatter={(value) => `${value.toLocaleString()} kg`} />
                                                         <Tooltip content={<CustomTooltip />} />
                                                         <Legend />
-                                                        <Bar dataKey="tilapia" fill="#10b981" name="Tilapia (kg)" radius={[4, 4, 0, 0]} minPointSize={5} />
-                                                        <Bar dataKey="bangus" fill="#3b82f6" name="Bangus (kg)" radius={[4, 4, 0, 0]} minPointSize={5} />
+                                                        <Bar dataKey="tilapia" fill="#10b981" name="Tilapia (kg)" radius={[4, 4, 0, 0]} />
+                                                        <Bar dataKey="bangus" fill="#3b82f6" name="Bangus (kg)" radius={[4, 4, 0, 0]} />
                                                     </BarChart>
                                                 </ResponsiveContainer>
                                             </div>

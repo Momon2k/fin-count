@@ -7,6 +7,7 @@ import Batch from "./batch";
 import Session from "./session";
 import Distribution from "./distribution";
 import Beneficiary from "./beneficiary";
+import DistributionImage from "./distribution.image";
 
 // Define associations AFTER all models are imported
 User.hasMany(StaffProfile, {
@@ -82,6 +83,18 @@ Session.belongsTo(Batch, {
   as: "batch",
 });
 
+Distribution.hasMany(DistributionImage, {
+  sourceKey: "id",
+  foreignKey: "distributionId",
+  as: "proofImages",
+});
+
+DistributionImage.belongsTo(Distribution, {
+  targetKey: "id",
+  foreignKey: "distributionId",
+  as: "distribution",
+});
+
 // Export all models
 const models = {
   sequelize,
@@ -92,6 +105,7 @@ const models = {
   Session,
   Distribution,
   Beneficiary,
+  DistributionImage,
 };
 
 export default models;
