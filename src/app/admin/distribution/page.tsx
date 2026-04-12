@@ -2003,7 +2003,10 @@ const DetailModal: React.FC<{
             const saveData = await saveRes.json();
 
             if (saveData.success) {
-                setProofImages(prev => [...prev, ...saveData.images]);
+                // Re-fetch from DB so IDs are the real auto-increment values.
+                // MySQL bulkCreate only reliably returns the first inserted ID;
+                // using its returned records causes delete to break immediately after upload.
+                await fetchImages();
             }
         } catch (err) {
             console.error("Error uploading images:", err);
