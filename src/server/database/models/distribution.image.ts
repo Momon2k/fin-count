@@ -30,7 +30,7 @@ DistributionImage.init(
       allowNull: false,
     },
     imageUrl: {
-      type: DataTypes.TEXT,
+      type: DataTypes.TEXT("medium"),
       allowNull: false,
     },
     createdAt: {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, ChangeEvent } from "react";
+import { useState, ChangeEvent, useMemo } from "react";
 
 import axios from "axios";
 import Link from "next/link";
@@ -9,6 +9,8 @@ import { useRouter } from "next/navigation";
 import { AdminProps, FormErrorsState } from "@/app/components/types/data.types";
 import { initialState } from "@/app/components/data/constant";
 import { validateForm } from "@/app/validation/admin.validation";
+
+const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
 
 type AdminRegistrationProps = {
     userType: string;
@@ -23,6 +25,23 @@ const AdminRegistration: React.FC<AdminRegistrationProps> = (props) => {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [registrationSuccess, setRegistrationSuccess] = useState(false);
     const [showPassword, setShowPassword] = useState<boolean>(false);
+    const [touched, setTouched] = useState<Record<string, boolean>>({});
+
+    const passwordValid = useMemo(() => PASSWORD_REGEX.test(formData.password), [formData.password]);
+    const confirmPasswordValid = useMemo(
+        () => formData.confirmPassword.length > 0 && formData.password === formData.confirmPassword,
+        [formData.password, formData.confirmPassword]
+    );
+
+    const isFormValid = useMemo(() => {
+        return (
+            formData.firstName.trim().length > 0 &&
+            formData.lastName.trim().length > 0 &&
+            formData.email.trim().length > 0 &&
+            passwordValid &&
+            confirmPasswordValid
+        );
+    }, [formData.firstName, formData.lastName, formData.email, passwordValid, confirmPasswordValid]);
 
     const validateFormAndUpdateErrors = async (): Promise<boolean> => {
         const { isValid, errors } = await validateForm(formData);
@@ -35,10 +54,37 @@ const AdminRegistration: React.FC<AdminRegistrationProps> = (props) => {
     ) => {
         const target = e.target as HTMLInputElement;
         const { name, value, type, checked } = target;
-        setFormData({
-            ...formData,
-            [name]: type === "checkbox" ? checked : value,
-        });
+        const newValue = type === "checkbox" ? checked : value;
+        const newFormData = { ...formData, [name]: newValue };
+        setFormData(newFormData);
+        setTouched((prev) => ({ ...prev, [name]: true }));
+
+        // Real-time password validation
+        if (name === "password") {
+            if (value.length > 0 && !PASSWORD_REGEX.test(value)) {
+                setErrors((prev) => ({
+                    ...prev,
+                    password: "Password must be at least 8 characters and include uppercase, lowercase, and a number.",
+                }));
+            } else {
+                setErrors((prev) => ({ ...prev, password: undefined }));
+            }
+            // Re-validate confirm password when password changes
+            if (newFormData.confirmPassword.length > 0 && value !== newFormData.confirmPassword) {
+                setErrors((prev) => ({ ...prev, confirmPassword: "Passwords do not match." }));
+            } else if (newFormData.confirmPassword.length > 0) {
+                setErrors((prev) => ({ ...prev, confirmPassword: undefined }));
+            }
+        }
+
+        if (name === "confirmPassword") {
+            if (value.length > 0 && value !== newFormData.password) {
+                setErrors((prev) => ({ ...prev, confirmPassword: "Passwords do not match." }));
+            } else {
+                setErrors((prev) => ({ ...prev, confirmPassword: undefined }));
+            }
+        }
+
         if (errors.general) {
             setErrors((prevErrors) => ({ ...prevErrors, general: undefined }));
         }
@@ -286,8 +332,13 @@ const AdminRegistration: React.FC<AdminRegistrationProps> = (props) => {
                             name="password"
                             value={formData.password}
                             onChange={handleChange}
-                            className={`w-full px-3 py-2 border rounded-md text-sm ${errors.password ? "border-red-500" : "border-gray-300"
-                                }`}
+                            className={`w-full px-3 py-2 border rounded-md text-sm ${
+                                !touched.password || formData.password.length === 0
+                                    ? "border-gray-300"
+                                    : passwordValid
+                                    ? "border-green-500"
+                                    : "border-red-500"
+                            }`}
                         />
                         <button
                             type="button"
@@ -329,8 +380,7 @@ const AdminRegistration: React.FC<AdminRegistrationProps> = (props) => {
                         <p className="mt-1 text-xs text-red-500">{errors.password}</p>
                     )}
                     <p className="mt-1 text-xs text-gray-500">
-                        Password must be at least 8 characters and include uppercase,
-                        lowercase, and numbers
+                        Use at least 8 characters with uppercase, lowercase, and numbers.
                     </p>
                 </div>
 
@@ -348,8 +398,13 @@ const AdminRegistration: React.FC<AdminRegistrationProps> = (props) => {
                             name="confirmPassword"
                             value={formData.confirmPassword}
                             onChange={handleChange}
-                            className={`w-full px-3 py-2 border rounded-md text-sm ${errors.confirmPassword ? "border-red-500" : "border-gray-300"
-                                }`}
+                            className={`w-full px-3 py-2 border rounded-md text-sm ${
+                                !touched.confirmPassword || formData.confirmPassword.length === 0
+                                    ? "border-gray-300"
+                                    : confirmPasswordValid
+                                    ? "border-green-500"
+                                    : "border-red-500"
+                            }`}
                         />
                         <button
                             type="button"
@@ -395,9 +450,12 @@ const AdminRegistration: React.FC<AdminRegistrationProps> = (props) => {
                 </div>
                 <button
                     onClick={handleSubmit}
-                    disabled={isSubmitting}
-                    className={`w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 ${isSubmitting ? "opacity-70 cursor-not-allowed" : ""
-                        }`}
+                    disabled={isSubmitting || !isFormValid}
+                    className={`w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
+                        isSubmitting || !isFormValid
+                            ? "bg-blue-400 opacity-70 cursor-not-allowed"
+                            : "bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                    }`}
                 >
                     {isSubmitting ? (
                         <>

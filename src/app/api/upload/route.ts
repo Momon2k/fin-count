@@ -1,8 +1,5 @@
 // src/app/api/upload/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { writeFile } from "fs/promises";
-import path from "path";
-import { mkdir } from "fs/promises";
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,7 +13,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate file type and size
+    // Validate file type
     const allowedTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"];
     if (!allowedTypes.includes(file.type)) {
       return NextResponse.json(
@@ -33,28 +30,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create a unique filename
-    const timestamp = Date.now();
-    const fileExtension = file.name.split(".").pop();
-    const fileName = `${timestamp}-${Math.random()
-      .toString(36)
-      .substring(2, 15)}.${fileExtension}`;
-
-    // Ensure upload directory exists
-    const uploadDir = path.join(process.cwd(), "public/uploads/profile-photos");
-    await mkdir(uploadDir, { recursive: true });
-
-    // Save the file
-    const filePath = path.join(uploadDir, fileName);
+    // Convert to base64 data URL — no filesystem writes, works on any deployment
     const buffer = Buffer.from(await file.arrayBuffer());
-    await writeFile(filePath, buffer);
-
-    // Return the file URL (path that can be used in <Image> component)
-    const fileUrl = `/uploads/profile-photos/${fileName}`;
+    const base64 = buffer.toString("base64");
+    const fileUrl = `data:${file.type};base64,${base64}`;
 
     return NextResponse.json({
       success: true,
-      fileUrl: fileUrl,
+      fileUrl,
     });
   } catch (error) {
     console.error("Error uploading file:", error);

@@ -39,6 +39,16 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // Validate password strength
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
+    if (!passwordRegex.test(body.password)) {
+      return jsonResponse({
+        success: false,
+        error: "Invalid password format",
+        status: 400,
+      });
+    }
+
     const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
 
     // Check for existing email

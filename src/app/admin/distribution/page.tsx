@@ -1357,13 +1357,12 @@ const DistributionFormModal: React.FC<{
                                         <input
                                             type="number"
                                             value={formData.fingerlingsCount || ''}
-                                            readOnly
-                                            disabled
+                                            onChange={(e) => handleInputChange('fingerlingsCount', parseInt(e.target.value) || 0)}
                                             placeholder="Will be auto-filled when batch is selected"
-                                            className="w-full p-3 border border-gray-300 rounded-lg bg-gray-50 text-gray-700 cursor-not-allowed"
+                                            className="w-full p-3 border border-gray-300 rounded-lg bg-white text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                             min="0"
                                         />
-                                        {selectedBatch && (
+                                        {selectedBatch && formData.fingerlingsCount > 0 && (
                                             <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
                                                 <CheckCircle className="h-5 w-5 text-green-500" />
                                             </div>
@@ -1811,6 +1810,113 @@ const DistributionFormModal: React.FC<{
     );
 };
 
+// Location Map Modal Component
+const LocationMapModal: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
+    location: string;
+}> = ({ isOpen, onClose, location }) => {
+    const [mapLoaded, setMapLoaded] = useState(false);
+    const [mapError, setMapError] = useState(false);
+
+    const googleMapsSearchUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location)}`;
+    const embedUrl = `https://www.google.com/maps?q=${encodeURIComponent(location)}&output=embed`;
+
+    useEffect(() => {
+        if (isOpen) {
+            setMapLoaded(false);
+            setMapError(false);
+        }
+    }, [isOpen, location]);
+
+    if (!isOpen) return null;
+
+    return (
+        <div
+            className="fixed inset-0 bg-black/60 flex items-center justify-center z-[70] p-4"
+            onClick={onClose}
+        >
+            <div
+                className="bg-white rounded-xl shadow-2xl w-full max-w-2xl flex flex-col overflow-hidden"
+                onClick={(e) => e.stopPropagation()}
+            >
+                {/* Header */}
+                <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+                    <div className="flex items-center gap-3 min-w-0">
+                        <div className="bg-blue-100 rounded-lg p-2 shrink-0">
+                            <MapPin className="h-5 w-5 text-blue-600" />
+                        </div>
+                        <div className="min-w-0">
+                            <h3 className="text-base font-semibold text-gray-900">Beneficiary Location</h3>
+                            <p className="text-sm text-blue-600 truncate">{location}</p>
+                        </div>
+                    </div>
+                    <button
+                        onClick={onClose}
+                        className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100 transition-colors shrink-0"
+                    >
+                        <X className="h-5 w-5" />
+                    </button>
+                </div>
+
+                {/* Map Body */}
+                <div className="relative w-full h-[400px] bg-gray-100">
+                    {!mapLoaded && !mapError && (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+                            <span className="text-sm text-gray-500">Loading map...</span>
+                        </div>
+                    )}
+                    {mapError && (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
+                            <MapPin className="h-10 w-10 text-gray-300" />
+                            <p className="text-sm text-gray-500">Could not load the map preview.</p>
+                            <a
+                                href={googleMapsSearchUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-sm text-blue-600 hover:text-blue-700 underline"
+                            >
+                                Open in Google Maps instead
+                            </a>
+                        </div>
+                    )}
+                    {!mapError && (
+                        <iframe
+                            src={embedUrl}
+                            className="w-full h-full border-0"
+                            allowFullScreen
+                            loading="lazy"
+                            referrerPolicy="no-referrer-when-downgrade"
+                            onLoad={() => setMapLoaded(true)}
+                            onError={() => setMapError(true)}
+                        />
+                    )}
+                </div>
+
+                {/* Footer */}
+                <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-gray-100">
+                    <a
+                        href={googleMapsSearchUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
+                    >
+                        <MapPin className="h-4 w-4" />
+                        Open in Google Maps
+                    </a>
+                    <button
+                        onClick={onClose}
+                        className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 text-sm font-medium rounded-lg transition-colors"
+                    >
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // Detailed View Modal with Enhanced Harvest Tracking
 const DetailModal: React.FC<{
     distribution: Distribution;
@@ -1843,6 +1949,7 @@ const DetailModal: React.FC<{
     const [selectedImageId, setSelectedImageId] = useState<number | null>(null);
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const [isDeletingImage, setIsDeletingImage] = useState(false);
+    const [showMapModal, setShowMapModal] = useState(false);
 
     const fetchImages = async () => {
         setIsLoadingImages(true);
@@ -2118,7 +2225,21 @@ const DetailModal: React.FC<{
                                 </div>
                                 <div className="md:col-span-2">
                                     <span className="text-blue-600 font-medium">Location:</span>
-                                    <p className="text-blue-800">{distribution.location}</p>
+                                    <div className="flex items-start gap-2 mt-0.5">
+                                        <p className="text-blue-800">{distribution.location}</p>
+                                        {distribution.location && distribution.location.trim() !== '' ? (
+                                            <button
+                                                onClick={() => setShowMapModal(true)}
+                                                className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-blue-600 bg-blue-100 hover:bg-blue-200 rounded-md transition-colors shrink-0"
+                                                title="View on map"
+                                            >
+                                                <MapPin className="h-3 w-3" />
+                                                View Map
+                                            </button>
+                                        ) : (
+                                            <span className="text-xs text-gray-400 italic">No location available</span>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -2604,6 +2725,13 @@ const DetailModal: React.FC<{
                     />
                 </div>
             )}
+
+            {/* Location Map Modal */}
+            <LocationMapModal
+                isOpen={showMapModal}
+                onClose={() => setShowMapModal(false)}
+                location={distribution.location || ''}
+            />
         </div>
     );
 };
