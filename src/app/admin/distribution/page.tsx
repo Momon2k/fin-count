@@ -1949,6 +1949,7 @@ const DetailModal: React.FC<{
     const [selectedImageId, setSelectedImageId] = useState<number | null>(null);
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const [isDeletingImage, setIsDeletingImage] = useState(false);
+    const [uploadError, setUploadError] = useState<string | null>(null);
     const [showMapModal, setShowMapModal] = useState(false);
 
     const fetchImages = async () => {
@@ -1976,6 +1977,7 @@ const DetailModal: React.FC<{
         if (!files || files.length === 0) return;
 
         setIsUploadingImages(true);
+        setUploadError(null);
         try {
             const uploadedUrls: string[] = [];
 
@@ -1987,7 +1989,7 @@ const DetailModal: React.FC<{
                 const data = await res.json();
 
                 if (!data.success) {
-                    alert(`Failed to upload ${file.name}: ${data.error}`);
+                    setUploadError(`${file.name}: ${data.error}`);
                     continue;
                 }
                 uploadedUrls.push(data.fileUrl);
@@ -2010,7 +2012,7 @@ const DetailModal: React.FC<{
             }
         } catch (err) {
             console.error("Error uploading images:", err);
-            alert("An error occurred while uploading images.");
+            setUploadError("An error occurred while uploading. Please try again.");
         } finally {
             setIsUploadingImages(false);
             if (fileInputRef.current) fileInputRef.current.value = '';
@@ -2535,7 +2537,7 @@ const DetailModal: React.FC<{
                                     Distribution Images
                                 </h2>
                                 <button
-                                    onClick={() => { setOpenImageModal(false); setIsDeleteMode(false); setSelectedImageId(null); setShowDeleteConfirm(false); }}
+                                    onClick={() => { setOpenImageModal(false); setIsDeleteMode(false); setSelectedImageId(null); setShowDeleteConfirm(false); setUploadError(null); }}
                                     className="text-gray-400 hover:text-gray-600 p-1 rounded"
                                 >
                                     <X className="h-5 w-5" />
@@ -2596,6 +2598,12 @@ const DetailModal: React.FC<{
                                 <p className="text-xs text-gray-500 mt-1">
                                     Max 2MB per image · JPG, PNG, GIF, WebP
                                 </p>
+                                {uploadError && (
+                                    <div className="flex items-start gap-2 mt-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg">
+                                        <AlertCircle className="h-4 w-4 text-red-500 mt-0.5 flex-shrink-0" />
+                                        <p className="text-xs text-red-600 font-medium">{uploadError}</p>
+                                    </div>
+                                )}
                                 {isDeleteMode && (
                                     <p className="text-xs text-red-500 mt-1 font-medium">
                                         Select a photo to delete it
@@ -2646,7 +2654,7 @@ const DetailModal: React.FC<{
 
                             <div className="flex justify-end mt-4">
                                 <button
-                                    onClick={() => { setOpenImageModal(false); setIsDeleteMode(false); setSelectedImageId(null); setShowDeleteConfirm(false); }}
+                                    onClick={() => { setOpenImageModal(false); setIsDeleteMode(false); setSelectedImageId(null); setShowDeleteConfirm(false); setUploadError(null); }}
                                     className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg text-sm font-medium transition-colors"
                                 >
                                     Close
