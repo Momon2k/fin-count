@@ -1357,9 +1357,9 @@ const DistributionFormModal: React.FC<{
                                         <input
                                             type="number"
                                             value={formData.fingerlingsCount || ''}
-                                            onChange={(e) => handleInputChange('fingerlingsCount', parseInt(e.target.value) || 0)}
+                                            readOnly
                                             placeholder="Will be auto-filled when batch is selected"
-                                            className="w-full p-3 border border-gray-300 rounded-lg bg-white text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                            className="w-full p-3 border border-gray-300 rounded-lg bg-gray-50 text-gray-700 cursor-not-allowed"
                                             min="0"
                                         />
                                         {selectedBatch && formData.fingerlingsCount > 0 && (
