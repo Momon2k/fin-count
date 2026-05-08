@@ -781,7 +781,7 @@ const DistributedBatchesReportView: React.FC<{ filters: ReportFilters }> = ({ fi
                         batchId: batch.batchNumber,
                         beneficiaryName: dist.beneficiaryName,
                         species: batch.species,
-                        totalCount: batch.batchTotalCount || batch.distributedQuantity || 0,
+                        totalCount: dist.fingerlings || 0,
                         dateDistributed: batch.dateDistributed,
                     });
                 });
