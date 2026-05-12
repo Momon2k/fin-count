@@ -777,11 +777,33 @@ const DistributedBatchesReportView: React.FC<{ filters: ReportFilters }> = ({ fi
         data.forEach(batch => {
             if (batch.distributions && batch.distributions.length > 0) {
                 batch.distributions.forEach((dist: any) => {
+                    const rawKilos = dist.forecastedHarvestKilos;
+                    const parsedKilos =
+                        rawKilos === null || rawKilos === undefined || rawKilos === ""
+                            ? null
+                            : Number(rawKilos);
+                    const forecastedKilos =
+                        parsedKilos !== null && !Number.isNaN(parsedKilos) && parsedKilos > 0
+                            ? parsedKilos
+                            : null;
+
+                    const rawActual = dist.actualHarvestKilos;
+                    const parsedActual =
+                        rawActual === null || rawActual === undefined || rawActual === ""
+                            ? null
+                            : Number(rawActual);
+                    const actualKilos =
+                        parsedActual !== null && !Number.isNaN(parsedActual)
+                            ? parsedActual
+                            : null;
+
                     flattened.push({
                         batchId: batch.batchNumber,
                         beneficiaryName: dist.beneficiaryName,
                         species: batch.species,
                         totalCount: dist.fingerlings || 0,
+                        forecastedKilos,
+                        actualKilos,
                         dateDistributed: batch.dateDistributed,
                     });
                 });
@@ -806,6 +828,8 @@ const DistributedBatchesReportView: React.FC<{ filters: ReportFilters }> = ({ fi
             "Beneficiaries Name": item.beneficiaryName,
             "Species": item.species,
             "Total Count": item.totalCount,
+            "Forecasted Kg": item.forecastedKilos !== null ? item.forecastedKilos : "-",
+            "Actual Kg": item.actualKilos !== null ? item.actualKilos : "-",
         }));
         exportToCSV(csvData, "distributed_batches_report");
     };
@@ -855,6 +879,8 @@ const DistributedBatchesReportView: React.FC<{ filters: ReportFilters }> = ({ fi
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Beneficiaries Name</th>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Species</th>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Count</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Forecasted Kg</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actual Kg</th>
                                 </tr>
                             </thead>
                             <tbody className="bg-white divide-y divide-gray-200">
@@ -864,6 +890,16 @@ const DistributedBatchesReportView: React.FC<{ filters: ReportFilters }> = ({ fi
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.beneficiaryName}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.species}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.totalCount.toLocaleString()}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                            {item.forecastedKilos !== null
+                                                ? `${item.forecastedKilos.toLocaleString()} kg`
+                                                : "-"}
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                            {item.actualKilos !== null
+                                                ? `${item.actualKilos.toLocaleString()} kg`
+                                                : "-"}
+                                        </td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -989,9 +1025,18 @@ const BeneficiariesReportView: React.FC<{ filters: ReportFilters }> = ({ filters
     const endIndex = startIndex + itemsPerPage;
     const currentData = data.slice(startIndex, endIndex);
 
+    const formatLocation = (b: any) => {
+        const parts = [
+            b.barangay && b.barangay !== "N/A" ? b.barangay : null,
+            b.municipality || null,
+            b.province || null,
+        ].filter(Boolean);
+        return parts.length > 0 ? parts.join(", ") : "-";
+    };
+
     const handleExportCSV = () => {
         const csvData = data.map(beneficiary => ({
-            Province: beneficiary.province,
+            Location: formatLocation(beneficiary),
             "Beneficiary Name": beneficiary.beneficiaryName,
             Species: beneficiary.species,
             "Total Fingerlings": beneficiary.totalFingerlings,
@@ -1041,7 +1086,7 @@ const BeneficiariesReportView: React.FC<{ filters: ReportFilters }> = ({ filters
                         <table className="w-full">
                             <thead className="bg-gray-50">
                                 <tr>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Province</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Location</th>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Beneficiary Name</th>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Species</th>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Fingerlings</th>
@@ -1052,7 +1097,7 @@ const BeneficiariesReportView: React.FC<{ filters: ReportFilters }> = ({ filters
                             <tbody className="bg-white divide-y divide-gray-200">
                                 {currentData.map((beneficiary, index) => (
                                     <tr key={beneficiary.id || index} className="hover:bg-gray-50">
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{beneficiary.province}</td>
+                                        <td className="px-6 py-4 text-sm text-gray-900">{formatLocation(beneficiary)}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{beneficiary.beneficiaryName}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{beneficiary.species}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{beneficiary.totalFingerlings.toLocaleString()}</td>

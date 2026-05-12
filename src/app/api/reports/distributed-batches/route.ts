@@ -100,6 +100,8 @@ export async function GET(request: NextRequest) {
       batchData.distributions.push({
         beneficiaryName: dist.beneficiaryName,
         fingerlings: dist.fingerlings,
+        forecastedHarvestKilos: dist.forecastedHarvestKilos ?? null,
+        actualHarvestKilos: dist.actualHarvestKilos ?? null,
         location: `${dist.barangay ? dist.barangay + ", " : ""}${
           dist.municipality
         }, ${dist.province}`,
