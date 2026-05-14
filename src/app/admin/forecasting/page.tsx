@@ -145,7 +145,7 @@ const HarvestForecast: React.FC = () => {
         return keys;
     };
 
-    // Validate date range - maximum 1 year (12 months) for all species
+    // Validate date range — only enforces that the end date is on or after the start date.
     const validateDateRange = (): { isValid: boolean; errorMessage: string } => {
         if (!formData.dateFrom || !formData.dateTo) {
             return { isValid: false, errorMessage: 'Error: End date must be after start date.' };
@@ -159,18 +159,6 @@ const HarvestForecast: React.FC = () => {
             return {
                 isValid: false,
                 errorMessage: 'Error: End date must be after start date.'
-            };
-        }
-
-        // Calculate the difference in months (inclusive of both start and end months)
-        const monthsDiff = (endDate.getFullYear() - startDate.getFullYear()) * 12 +
-            (endDate.getMonth() - startDate.getMonth()) + 1;
-
-        // Check maximum 12 months limit for all species
-        if (monthsDiff > 12) {
-            return {
-                isValid: false,
-                errorMessage: `Error: Date range cannot exceed 12 months. Current selection: ${monthsDiff} months.`
             };
         }
 
