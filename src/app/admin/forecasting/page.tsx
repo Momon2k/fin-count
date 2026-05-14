@@ -45,11 +45,9 @@ const formatDateInputValue = (date: Date): string => {
 
 const getTodayInputValue = (): string => formatDateInputValue(new Date());
 
-const getMinStartDateFor12MonthWindow = (endDateInput: string): string => {
-    if (!endDateInput) return '';
-    const end = new Date(endDateInput);
-    const minStart = new Date(end.getFullYear(), end.getMonth() - 11, 1);
-    return formatDateInputValue(minStart);
+const getStartOfCurrentYear = (): string => {
+    const now = new Date();
+    return `${now.getFullYear()}-01-01`;
 };
 
 const FullScreenLoader: React.FC = () => (
@@ -68,10 +66,9 @@ const HarvestForecast: React.FC = () => {
 
     // Form state
     const [formData, setFormData] = useState<FormData>(() => {
-        const today = getTodayInputValue();
         return {
-            dateFrom: getMinStartDateFor12MonthWindow(today),
-            dateTo: today,
+            dateFrom: getStartOfCurrentYear(),
+            dateTo: getTodayInputValue(),
         species: "Red Tilapia",
         province: "all",
         city: "all",
@@ -116,44 +113,16 @@ const HarvestForecast: React.FC = () => {
     const handleInputChange = (field: keyof FormData, value: string) => {
         setFormData(prev => {
             const newData = { ...prev, [field]: value };
-            const today = getTodayInputValue();
 
-            // Reset dependent fields when parent changes
+            // Reset dependent dropdown fields when parent changes.
+            // No silent date clamping — range correctness is enforced by
+            // validateDateRange and surfaced as an inline error message.
             if (field === 'province') {
                 newData.city = 'all';
                 newData.barangay = 'all';
             } else if (field === 'city') {
                 newData.barangay = 'all';
             }
-
-            if (field === 'dateTo') {
-                if (newData.dateTo && newData.dateTo > today) {
-                    newData.dateTo = today;
-                }
-                const minStart = getMinStartDateFor12MonthWindow(newData.dateTo);
-                if (minStart && newData.dateFrom && newData.dateFrom < minStart) {
-                    newData.dateFrom = minStart;
-                }
-                if (newData.dateFrom && newData.dateTo && newData.dateFrom > newData.dateTo) {
-                    newData.dateFrom = newData.dateTo;
-                }
-            }
-
-            if (field === 'dateFrom') {
-                const minStart = getMinStartDateFor12MonthWindow(newData.dateTo);
-                if (minStart && newData.dateFrom && newData.dateFrom < minStart) {
-                    newData.dateFrom = minStart;
-                }
-                if (newData.dateFrom && newData.dateTo && newData.dateFrom > newData.dateTo) {
-                    newData.dateTo = newData.dateFrom;
-                }
-                if (newData.dateTo && newData.dateTo > today) {
-                    newData.dateTo = today;
-                }
-            }
-
-            // Note: Removed automatic date adjustment when species changes
-            // Users can now freely select any date range up to 12 months
 
             return newData;
         });
@@ -178,6 +147,10 @@ const HarvestForecast: React.FC = () => {
 
     // Validate date range - maximum 1 year (12 months) for all species
     const validateDateRange = (): { isValid: boolean; errorMessage: string } => {
+        if (!formData.dateFrom || !formData.dateTo) {
+            return { isValid: false, errorMessage: 'Error: End date must be after start date.' };
+        }
+
         const startDate = new Date(formData.dateFrom);
         const endDate = new Date(formData.dateTo);
 
@@ -632,8 +605,6 @@ const HarvestForecast: React.FC = () => {
                                         <input
                                             type="date"
                                             value={formData.dateFrom}
-                                            min={getMinStartDateFor12MonthWindow(formData.dateTo)}
-                                            max={formData.dateTo || getTodayInputValue()}
                                             onChange={(e) => handleInputChange('dateFrom', e.target.value)}
                                             className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                                         />
@@ -647,8 +618,6 @@ const HarvestForecast: React.FC = () => {
                                         <input
                                             type="date"
                                             value={formData.dateTo}
-                                            min={formData.dateFrom}
-                                            max={getTodayInputValue()}
                                             onChange={(e) => handleInputChange('dateTo', e.target.value)}
                                             className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                                         />
